@@ -5,6 +5,45 @@
 
 ## 25 августа 2026
 
+### Read-only подтверждение доступа к SumUp sandbox
+
+- Локально подтверждено наличие `SUMUP_SANDBOX_MERCHANT_CODE` и
+  `SUMUP_SANDBOX_API_KEY`. Значения не выводились, не читались в tracked-файлы и
+  не добавлялись в Git.
+- По официальному [Get Merchant API](https://developer.sumup.com/api/merchants/get)
+  выбран read-only endpoint `GET /v1/merchants/{merchant_code}`. Документация
+  указывает scopes `user.profile` или `user.profile_readonly`, permission
+  `merchant_read`, Bearer-аутентификацию и поле ответа `sandbox`, которое прямо
+  показывает тестовый merchant.
+- Добавлен строгий loader SumUp sandbox config. Он требует обе локальные
+  переменные, обрезает внешние пробелы и не имеет fallback на live credentials.
+  В `.env.example` добавлены только пустые имена переменных, без значений.
+- Добавлен минимальный read-only `SumUpClient`. Он поддерживает только один
+  метод `getMerchantSummary`, выполняет `GET` без body, query string, redirect и
+  retry, передаёт API key только в `Authorization: Bearer` и наружу отображает
+  только merchant code, страну, default currency и sandbox flag. Юридические,
+  контактные и business-profile данные не маппятся.
+- Ошибки клиента не включают API key, response body или идентификаторы merchant.
+  Ответ валидируется без догадок: merchant code обязан совпасть с локальной
+  конфигурацией, а `country`, `default_currency` и `sandbox` должны иметь
+  документированные типы.
+- Добавлен локальный script `npm run sumup:check-access`. Его вывод не содержит
+  API key или merchant code и останавливается с ошибкой, если SumUp возвращает
+  не-sandbox merchant.
+- После успешных mock-тестов выполнен ровно один authenticated Get Merchant к
+  SumUp. Получен успешный `2xx` ответ: credential авторизован, возвращённый
+  merchant совпал с настроенным, `sandbox: true`, страна `IE`, default currency
+  `EUR`.
+- Никаких других запросов к SumUp не выполнялось: POST, checkout, payment,
+  webhook, retry и изменения аккаунта отсутствовали. README и PLAN не менялись.
+- Unit-тесты проверяют обязательность конфигурации, точный GET без body,
+  единственный вызов fetch, Bearer header, отсутствие query, безопасное
+  отображение merchant, неразглашение ключа/error body, mismatch merchant и
+  некорректный sandbox flag.
+- Проверки: `npm test` — 36 тестов; `npm run typecheck`; `npm run build`;
+  `git diff --check`; `npm run sumup:check-access` — один успешный read-only GET.
+- Commit: текущий коммит, содержащий эту запись.
+
 ### Официальный preflight SumUp Sandbox и Hosted Checkout
 
 - Изучены только актуальные официальные материалы SumUp:

@@ -9,6 +9,7 @@
     "build": "tsc -p tsconfig.build.json",
     "start": "node dist/server.js",
     "poster:check-menu": "tsx src/scripts/check-poster-menu.ts",
+    "sumup:check-access": "tsx src/scripts/check-sumup-access.ts",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json"
   },
