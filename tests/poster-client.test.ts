@@ -73,9 +73,15 @@ describe("PosterClient", () => {
     const client = new PosterClient(
       token,
       vi.fn(async () =>
-        Response.json(
-          { error: { code: 10, message: "Access denied" } },
-          { status: 403 },
+        new Response(
+          JSON.stringify({
+            error: { code: 10, message: "Access denied" },
+            request_url: `https://joinposter.com/api/menu.getProducts?token=${token}`,
+          }),
+          {
+            status: 403,
+            headers: { "Content-Type": "application/json" },
+          },
         ),
       ),
     );
@@ -85,8 +91,73 @@ describe("PosterClient", () => {
       name: "PosterApiError",
       code: 10,
       message: "Poster request menu.getProducts failed: Access denied",
+      diagnostic: {
+        status: 403,
+        contentType: "application/json",
+        truncated: false,
+      },
     });
     await expect(request).rejects.not.toThrow(token);
+
+    try {
+      await request;
+    } catch (error) {
+      expect(error).toMatchObject({
+        diagnostic: {
+          body: expect.not.stringContaining(token),
+        },
+      });
+    }
+  });
+
+  it("preserves a bounded diagnostic for non-JSON errors", async () => {
+    const client = new PosterClient(
+      "local-test-token",
+      vi.fn(async () =>
+        new Response("upstream rejected the request", {
+          status: 422,
+          headers: { "Content-Type": "text/plain" },
+        }),
+      ),
+    );
+
+    await expect(client.getMenuItems()).rejects.toMatchObject({
+      name: "PosterApiError",
+      code: null,
+      message: "Poster request menu.getProducts returned invalid JSON",
+      diagnostic: {
+        status: 422,
+        contentType: "text/plain",
+        body: "upstream rejected the request",
+        truncated: false,
+      },
+    });
+  });
+
+  it("sanitizes credentials and query strings reflected in an API message", async () => {
+    const token = "reflected-secret-token";
+    const client = new PosterClient(
+      token,
+      vi.fn(async () =>
+        Response.json(
+          {
+            error: {
+              code: 10,
+              message:
+                `Rejected https://joinposter.com/api/test?token=${token}&source=test`,
+            },
+          },
+          { status: 403 },
+        ),
+      ),
+    );
+
+    const request = client.getMenuItems();
+    await expect(request).rejects.toThrow(
+      "Poster request menu.getProducts failed: Rejected https://joinposter.com/api/test[QUERY_REDACTED]",
+    );
+    await expect(request).rejects.not.toThrow(token);
+    await expect(request).rejects.not.toThrow("?");
   });
 
   it("rejects malformed prices instead of guessing", async () => {

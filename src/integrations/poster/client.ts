@@ -1,3 +1,8 @@
+import {
+  createPosterResponseDiagnostic,
+  type PosterResponseDiagnostic,
+} from "./response-diagnostic.js";
+
 const POSTER_API_BASE_URL = "https://joinposter.com/api/";
 
 type PosterFetch = (
@@ -31,6 +36,7 @@ export class PosterApiError extends Error {
   constructor(
     message: string,
     readonly code: number | null = null,
+    readonly diagnostic: PosterResponseDiagnostic | null = null,
   ) {
     super(message);
     this.name = "PosterApiError";
@@ -86,12 +92,30 @@ export class PosterClient {
       throw new PosterApiError(`Poster request ${method} failed`);
     }
 
+    let bodyText: string;
+    try {
+      bodyText = await response.text();
+    } catch {
+      throw new PosterApiError(
+        `Poster request ${method} response could not be read`,
+      );
+    }
+
+    const diagnostic = createPosterResponseDiagnostic({
+      status: response.status,
+      contentType: response.headers.get("content-type"),
+      bodyText,
+      sensitiveValues: [this.token],
+    });
+
     let payload: unknown;
     try {
-      payload = await response.json();
+      payload = JSON.parse(bodyText) as unknown;
     } catch {
       throw new PosterApiError(
         `Poster request ${method} returned invalid JSON`,
+        null,
+        diagnostic,
       );
     }
 
@@ -99,11 +123,19 @@ export class PosterClient {
     if (!response.ok || "error" in envelope) {
       const error = isRecord(envelope.error) ? envelope.error : {};
       const code = parseOptionalInteger(error.code);
-      const apiMessage =
+      const rawApiMessage =
         typeof error.message === "string" ? error.message : "unknown error";
+      const apiMessage = createPosterResponseDiagnostic({
+        status: response.status,
+        contentType: null,
+        bodyText: rawApiMessage,
+        sensitiveValues: [this.token],
+        maxBodyChars: 500,
+      }).body;
       throw new PosterApiError(
         `Poster request ${method} failed: ${apiMessage}`,
         code,
+        diagnostic,
       );
     }
 
