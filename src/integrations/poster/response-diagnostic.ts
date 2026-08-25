@@ -110,7 +110,7 @@ function sanitizeBody(
     "$1[REDACTED]",
   );
 
-  for (const value of new Set(sensitiveValues)) {
+  for (const value of expandSensitiveValues(sensitiveValues)) {
     if (value.length > 0) {
       sanitized = sanitized.split(value).join("[REDACTED]");
     }
@@ -129,6 +129,20 @@ function sanitizeBody(
   );
 
   return sanitized;
+}
+
+function expandSensitiveValues(values: readonly string[]): string[] {
+  const expanded = new Set(values);
+
+  for (const value of values) {
+    // Poster may normalize an E.164 phone by removing its leading plus sign
+    // before echoing it in phone or first_name.
+    if (/^\+[1-9]\d{6,14}$/u.test(value)) {
+      expanded.add(value.slice(1));
+    }
+  }
+
+  return [...expanded].sort((left, right) => right.length - left.length);
 }
 
 function sanitizeContentType(value: string | null): string | null {

@@ -57,6 +57,26 @@ describe("Poster response diagnostics", () => {
     expect(diagnostic.body).not.toContain("+353871234567");
   });
 
+  it("redacts a known E.164 phone after Poster removes the plus sign", () => {
+    const phone = "+353871234567";
+    const normalizedPhone = phone.slice(1);
+    const diagnostic = createPosterResponseDiagnostic({
+      status: 200,
+      contentType: "application/json",
+      bodyText: JSON.stringify({
+        response: {
+          first_name: normalizedPhone,
+          phone: normalizedPhone,
+        },
+      }),
+      sensitiveValues: [phone],
+    });
+
+    expect(diagnostic.body).not.toContain(phone);
+    expect(diagnostic.body).not.toContain(normalizedPhone);
+    expect(diagnostic.body).toContain("[REDACTED]");
+  });
+
   it("limits the sanitized body", () => {
     const diagnostic = createPosterResponseDiagnostic({
       status: 503,
