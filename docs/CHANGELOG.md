@@ -5,6 +5,102 @@
 
 ## 25 августа 2026
 
+### Официальный preflight SumUp Sandbox и Hosted Checkout
+
+- Изучены только актуальные официальные материалы SumUp:
+  [Testing](https://developer.sumup.com/online-payments/testing),
+  [API Keys](https://developer.sumup.com/tools/authorization/api-keys),
+  [Hosted Checkout](https://developer.sumup.com/online-payments/checkouts/hosted-checkout),
+  [Checkouts API](https://developer.sumup.com/api/checkouts/create),
+  [Webhooks](https://developer.sumup.com/online-payments/webhooks) и
+  [Transactions API](https://developer.sumup.com/api/transactions/get).
+
+#### Sandbox и доступ
+
+- SumUp позволяет создать sandbox merchant account в Dashboard: войти в
+  аккаунт, открыть Developer Settings и создать merchant в Sandboxes. Если
+  SumUp developer account ещё отсутствует, регистрация нового developer account
+  создаёт начальный sandbox merchant. Sandbox использует симулированные
+  транзакции и не перемещает реальные деньги.
+- Sandbox merchant имеет собственный идентификатор. Для интеграции нужно выбрать
+  именно sandbox merchant и получить его `merchant_code`; live merchant code
+  использовать нельзя.
+- Для нашей прямой server-to-server интеграции одного merchant подходит secret
+  API key, созданный в выбранном sandbox merchant. Он передаётся только сервером
+  как `Authorization: Bearer <API_KEY>`. Показанный в Dashboard public key для
+  этой интеграции использовать нельзя; ключ нельзя помещать в браузер, Git или
+  tracked-файлы.
+- OAuth 2.0 нужен, если приложение будут независимо подключать разные merchants.
+  Affiliate key относится к card-present интеграциям и для Hosted Checkout не
+  нужен. Поэтому `client_id`, `client_secret` и affiliate key в текущем
+  single-merchant варианте не требуются.
+- API reference указывает для создания checkout scope `payments` или
+  `checkouts.write`, для чтения checkout — `payments` или `checkouts.read`, а
+  для отдельного чтения transaction — `transactions.read` или
+  `transactions.history`. Эти scopes важны при OAuth/access-token модели;
+  secret API key одного merchant предоставляет прямой доступ от его имени.
+- Планируемые локальные значения: `SUMUP_SANDBOX_API_KEY` как секрет и
+  `SUMUP_SANDBOX_MERCHANT_CODE` как идентификатор. Значения ещё не получены и в
+  репозиторий не добавлялись.
+
+#### Минимальный Hosted Checkout
+
+- Checkout создаётся серверным `POST https://api.sumup.com/v0.1/checkouts`.
+  Обязательные поля: уникальный `checkout_reference` длиной до 90 символов,
+  `amount` в основных единицах валюты, `currency`, `merchant_code` и для hosted
+  страницы объект `hosted_checkout: { "enabled": true }`.
+- Для Sushi Planet валюта должна быть `EUR`; локальные целые центы нужно
+  детерминированно преобразовать в сумму EUR без ошибок округления. Поля
+  `description`, `valid_until`, `return_url` и `redirect_url` необязательны.
+- Успешное создание ресурса ещё не означает оплату. Нужно сохранить выданные
+  SumUp `id`, `checkout_reference` и `hosted_checkout_url`, а клиента направить
+  только на `hosted_checkout_url`. Hosted Checkout session действует 30 минут.
+- `redirect_url` управляет кнопкой возврата клиента на success page и не является
+  подтверждением оплаты. `return_url` — backend callback для уведомлений об
+  изменении checkout; эти два URL имеют разные назначения.
+
+#### Webhook и подтверждение успешной оплаты
+
+- Отдельная регистрация события в Dashboard не описана: подписка на изменение
+  конкретного checkout выполняется передачей публично доступного backend
+  `return_url` при создании checkout. Для проекта следует использовать HTTPS
+  endpoint, например отдельный route вида `/webhooks/sumup`.
+- Актуальная документация Online Payments не описывает webhook signing secret,
+  signature header или HMAC-проверку. Webhook содержит только
+  `event_type: "CHECKOUT_STATUS_CHANGED"` и SumUp checkout `id`, поэтому сам
+  callback не является доказательством оплаты.
+- Endpoint должен быстро вернуть пустой `2xx`, неизвестные будущие типы событий
+  нужно безопасно игнорировать. При не-`2xx` SumUp повторяет доставку через
+  1 минуту, 5 минут, 20 минут и 2 часа; обработка обязана быть идемпотентной.
+- После webhook backend обязан выполнить аутентифицированный
+  `GET /v0.1/checkouts/{checkout_id}` и сверить `id`, наш
+  `checkout_reference`, `merchant_code`, точные `amount` и `currency: "EUR"`.
+  Checkout считается успешно оплаченным только при `status: "PAID"`.
+- Transactions API назван официальным источником результата платежа. Перед
+  передачей заказа в Poster нужно также подтвердить связанную transaction со
+  `status: "SUCCESSFUL"` и совпадающими merchant, amount и currency. Статусы
+  `PENDING`, `FAILED`, `EXPIRED`, `CANCELLED` или `REFUNDED` не разрешают
+  создавать оплаченный заказ.
+- Только после серверной проверки и идемпотентного перехода конкретного order ID
+  в paid можно создать один заказ Poster. Hosted success page, `redirect_url`,
+  сообщение клиента и неподтверждённый webhook этого права не дают.
+
+#### Текущий статус
+
+- Официальная документация подтверждает, что SumUp sandbox и Hosted Checkout
+  подходят для следующего тестового этапа. Окончательная пригодность для Sushi
+  Planet остаётся неподтверждённой до получения sandbox credentials и реального
+  end-to-end теста webhook/API reconciliation.
+- Официальная testing page предоставляет тестовые карты для success, failure и
+  3DS-сценариев; их номера намеренно не копировались в репозиторий. Сумма `11`
+  в sandbox документирована как преднамеренный failure-path.
+- Никакие SumUp аккаунты, sandbox merchants, API keys, webhook endpoints,
+  checkouts или платежи не создавались. Внешние системы не изменялись. README и
+  PLAN не менялись.
+- Проверки: `npm test` — 29 тестов; `npm run typecheck`; `npm run build`;
+  `git diff --check`.
+- Commit: текущий коммит, содержащий эту запись.
+
 ### Успешная вторая тестовая попытка Poster
 
 - Read-only preflight непосредственно перед попыткой подтвердил тестовый аккаунт
