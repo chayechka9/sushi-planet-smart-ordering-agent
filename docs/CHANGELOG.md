@@ -5,6 +5,38 @@
 
 ## 25 августа 2026
 
+### Локальный серверный flow SumUp webhook
+
+- Добавлен `ProcessSumUpWebhookService`, который применяет существующий webhook
+  contract к SQLite repository. Для `ignored`, неизвестного checkout и уже
+  оплаченного payment он завершает обработку без verification; для известного
+  non-paid checkout вызывает только внедрённый `SumUpCheckoutVerifier`.
+- `SumUpCheckoutVerifier` является интерфейсом без credentials, `.env`, HTTP-
+  клиента или `fetch`. Service принимает только нормализованный
+  `VerifiedSumUpCheckout`, требует совпадения его checkout ID с webhook и затем
+  передаёт его в существующую атомарную SQLite reconciliation.
+- Результаты application flow разделены на `ignored`, `unknown_checkout`,
+  `pending`, `not_paid`, `paid` и `duplicate`. `PENDING`, `FAILED` и `EXPIRED`
+  не переводят order в `paid`; повтор уже оплаченного webhook не вызывает
+  verifier и не выполняет второй переход.
+- Добавлен локальный Fastify route `POST /webhooks/sumup`. Он регистрируется в
+  `createApp` только при явной передаче service dependency; текущий server
+  bootstrap не передаёт verifier и не открывает этот route наружу. Поддержанные
+  результаты возвращают безопасный HTTP `200` только с `received` и `outcome`;
+  невалидный контракт и внутренняя ошибка возвращают безопасные `400`/`503` без
+  payment, customer, merchant, token, checkout или transaction details.
+- Integration-тесты через `app.inject` и временную SQLite database покрывают
+  verified `PAID` + `SUCCESSFUL`, повторный webhook, `PENDING`, `FAILED`,
+  неизвестные checkout/event, отсутствие вызова verifier для ignored/unknown/
+  already-paid и отказ от результата verifier для другого checkout ID.
+  Глобальный `fetch` во всех route-тестах заменён на немедленную ошибку.
+- README и PLAN не менялись. Никаких сетевых запросов, GET/POST в SumUp или
+  Poster, checkout, payment session, заказа, subscription, публичного URL,
+  tunnel или webhook delivery не выполнялось. `.env` и secrets не читались.
+- Проверки: `npm test` — 69 тестов; `npm run typecheck`; `npm run build`;
+  `git diff --check`.
+- Commit: текущий коммит, содержащий эту запись.
+
 ### Постоянное локальное хранилище order ↔ payment
 
 - Добавлена версионированная SQLite-миграция для таблиц `orders`, `payments` и
