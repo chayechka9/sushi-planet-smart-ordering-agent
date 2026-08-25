@@ -5,6 +5,29 @@
 
 ## 25 августа 2026
 
+### Первый SumUp sandbox Hosted Checkout
+
+- После отдельного явного разрешения выполнен ровно один
+  `POST https://api.sumup.com/v0.1/checkouts` в ранее подтверждённый sandbox
+  merchant. Production не использовался, redirect был отключён, retry и другие
+  запросы к SumUp не выполнялись.
+- Отправлен последний проверенный dry-run payload: reference
+  `sumup-ord_sumup_test_001-1`, сумма `1000` евроцентов (`amount: 10` в
+  документированных major units), валюта `EUR` и
+  `hosted_checkout.enabled: true`. API key и merchant code не выводились и не
+  сохранялись в tracked-файлы.
+- SumUp ответил HTTP `201`, `Content-Type: application/json`. Создан sandbox
+  checkout `5d846097-5068-45ac-b40c-816840f969ea`; возвращённые reference,
+  amount, currency и merchant совпали с запросом, начальный status — `PENDING`.
+- Ответ содержал Hosted Checkout URL, но URL не выводился, не сохранялся и не
+  открывался. Платёж не проводился, card data не передавались.
+- README и PLAN не менялись: создание checkout подтверждено, но оплата,
+  webhook/API verification и полный безопасный переход заказа в `paid` ещё не
+  проверены.
+- Проверки: `npm test` — 42 теста; `npm run typecheck`; `npm run build`;
+  `git diff --check`.
+- Commit: текущий коммит, содержащий эту запись.
+
 ### Dry-run SumUp Hosted Checkout
 
 - Контракт повторно сверен с официальными страницами
