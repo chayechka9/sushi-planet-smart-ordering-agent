@@ -17,6 +17,18 @@ repository. Follow the files in this order: `AGENTS.md`, `README.md`, then
   or production Poster action without explicit user approval immediately before
   that external action.
 
+## Documentation workflow
+
+- After every completed change, add a factual entry to `docs/CHANGELOG.md` with
+  the outcome, relevant checks, and commit reference when available.
+- Keep implementation details, test fixtures, troubleshooting evidence, and
+  per-change verification results in `docs/CHANGELOG.md`.
+- Change `README.md` and `PLAN.md` only when there is a key change to the
+  architecture, project boundaries, selected integration, safety rules, or when
+  a major stage is completed.
+- Never put secrets, production credentials, or real customer data in the
+  changelog.
+
 ## Required GitHub workflow
 
 For every completed, self-contained change:
