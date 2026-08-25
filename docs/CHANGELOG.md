@@ -5,6 +5,45 @@
 
 ## 25 августа 2026
 
+### Локальная связь payment ↔ order и webhook-контракт
+
+- Добавлена локальная модель SumUp payment, связанная с одним order через
+  `orderId`, `checkoutId` и `checkoutReference`. Запись хранит merchant,
+  исходную сумму в целых евроцентах, EUR, статусы `pending`, `paid`, `failed`
+  или `expired`, ID успешной transaction и временные метки.
+- Создание payment разрешено только для order в `awaiting_payment`; сумма и
+  валюта обязаны совпасть с расчётом order core. Пустые идентификаторы и
+  нецелые либо неположительные суммы отклоняются.
+- Добавлен development-only `InMemoryPaymentStore`. Он обеспечивает
+  уникальность checkout ID, order ID и checkout reference, возвращает копии
+  записей и запрещает менять identity payment при обновлении статуса. Для
+  production всё ещё необходимо durable-хранилище с атомарной записью order и
+  payment.
+- Добавлен transport-neutral контракт SumUp webhook для документированного
+  `CHECKOUT_STATUS_CHANGED` с checkout `id`. Неизвестные event types безопасно
+  игнорируются, некорректное тело отклоняется, неизвестный checkout не
+  связывается с order.
+- Webhook сам по себе не меняет payment или order на `paid`. Для известного
+  pending checkout он возвращает только `verification_required`; будущий слой
+  транспорта обязан выполнить авторизованный GET и передать нормализованный
+  результат в reconciliation.
+- Reconciliation сверяет order, checkout ID, reference, merchant, сумму и EUR.
+  Переход в `paid` возможен только для checkout `PAID` с ровно одной
+  `SUCCESSFUL` transaction той же суммы и валюты. Повтор той же transaction
+  возвращает `duplicate` и не выполняет второй переход; другая transaction,
+  несовпадающие реквизиты или регресс уже оплаченного payment отклоняются.
+- Публичный webhook route, URL, tunnel, HTTP-клиент проверки checkout и
+  интеграция с Poster не добавлялись. Никаких внешних запросов, POST, webhook
+  delivery или изменений SumUp/Poster не выполнялось. `.env`, README и PLAN не
+  менялись.
+- Unit-тесты покрывают создание и хранение payment, уникальные связи,
+  несовпадение суммы, успешную reconciliation, повторную обработку, non-paid
+  статусы, несовпадение checkout/transaction, webhook parsing/routing и
+  отсутствие `fetch`.
+- Проверки: `npm test` — 56 тестов; `npm run typecheck`; `npm run build`;
+  `git diff --check`.
+- Commit: текущий коммит, содержащий эту запись.
+
 ### Первый SumUp sandbox Hosted Checkout
 
 - После отдельного явного разрешения выполнен ровно один
