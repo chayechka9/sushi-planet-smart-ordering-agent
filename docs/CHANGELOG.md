@@ -5,6 +5,42 @@
 
 ## 25 августа 2026
 
+### Dry-run SumUp Hosted Checkout
+
+- Контракт повторно сверен с официальными страницами
+  [Hosted Checkout](https://developer.sumup.com/online-payments/checkouts/hosted-checkout)
+  и [Create a checkout](https://developer.sumup.com/api/checkouts/create).
+  Подтверждены `POST /v0.1/checkouts`, обязательные `checkout_reference`,
+  `amount`, `currency`, `merchant_code` и `hosted_checkout.enabled: true`.
+  SumUp принимает `amount` в основных единицах валюты, а локальный order core
+  продолжает хранить и проверять деньги только в целых евроцентах.
+- Добавлены типы и чистая функция подготовки Hosted Checkout. Она принимает
+  заказ со статусом `awaiting_payment`, номер платёжной попытки и уже
+  подтверждённый merchant summary; требует `sandbox: true` и валюту `EUR`.
+- Уникальный `checkout_reference` детерминированно составляется из стабильного
+  order ID и положительного номера платёжной попытки. Одна попытка повторяемо
+  получает тот же reference, новая попытка — другой; документированный лимит в
+  90 символов проверяется до подготовки запроса.
+- Итог заказа вычисляется order core в центах и только на границе SumUp
+  преобразуется в major units. Нулевая сумма, неверный статус, live merchant,
+  другая валюта, неверный номер попытки и слишком длинный reference
+  отклоняются локально.
+- Добавлен dry-run, возвращающий только method, endpoint без query string,
+  `Content-Type`, сумму в центах и сериализованный JSON body. API key не входит
+  в сигнатуру или результат; `Authorization` не создаётся, `fetch` не
+  вызывается.
+- Необязательные `description`, `redirect_url`, `return_url` и `valid_until`
+  пока не добавлены: их значения и дальнейшая обработка ещё не утверждены.
+- Никаких запросов к SumUp не выполнялось, checkout и платёж не создавались,
+  локальные secrets и `.env` не читались. README и PLAN не менялись.
+- Unit-тесты покрывают точный payload, преобразование `1099` центов в `10.99`
+  EUR, стабильность и смену reference между попытками, sandbox/EUR/status
+  guards, лимит reference и доказательство отсутствия вызова `fetch` и
+  Authorization header.
+- Проверки: `npm test` — 42 теста; `npm run typecheck`; `npm run build`;
+  `git diff --check`.
+- Commit: текущий коммит, содержащий эту запись.
+
 ### Read-only подтверждение доступа к SumUp sandbox
 
 - Локально подтверждено наличие `SUMUP_SANDBOX_MERCHANT_CODE` и
