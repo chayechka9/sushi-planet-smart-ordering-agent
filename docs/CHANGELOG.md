@@ -5,6 +5,43 @@
 
 ## 25 августа 2026
 
+### Постоянное локальное хранилище order ↔ payment
+
+- Добавлена версионированная SQLite-миграция для таблиц `orders`, `payments` и
+  `schema_migrations`. Схема ограничивает статусы и EUR, требует положительную
+  целую сумму в евроцентах и обеспечивает уникальность order ID, checkout ID,
+  checkout reference и successful transaction ID.
+- Добавлен file-backed `SqliteOrderPaymentRepository` на встроенном
+  `node:sqlite`. Создание связанной пары order/payment выполняется одной
+  транзакцией; локальные файлы `.sqlite`/`.db` и их sidecar-файлы исключены из
+  Git. Минимальная версия Node повышена до `22.13.0`; внешняя зависимость БД не
+  добавлялась.
+- Reconciliation читает сохранённые order и payment по checkout ID и повторно
+  применяет существующие проверки checkout ID, checkout reference, merchant,
+  суммы в целых евроцентах, EUR, статуса `PAID` и ровно одной
+  `SUCCESSFUL` transaction с совпадающими суммой и валютой.
+- Переход order и payment в `paid`, successful transaction ID и время оплаты
+  фиксируются внутри `BEGIN IMMEDIATE`. Ошибка или конфликт уникальности
+  полностью откатывает оба изменения; сырые SQLite diagnostics с локальными
+  идентификаторами наружу не возвращаются.
+- Повтор той же successful transaction после закрытия и повторного открытия БД
+  возвращает `duplicate`, не меняет временные метки и не выполняет второй
+  переход order в `paid`. Уникальный successful transaction ID также не может
+  быть присвоен другому payment.
+- Integration-тесты с временными локальными файлами покрывают миграцию и
+  восстановление после перезапуска, атомарную успешную обработку, повтор после
+  перезапуска, rollback при mismatch и конфликте transaction ID, атомарное
+  создание пары и сохранение non-paid статуса. Сеть в тестах не используется.
+- Обновлено только фактическое описание database-слоя в
+  `docs/ARCHITECTURE.md`. README и PLAN не менялись: границы проекта и крупные
+  этапы не изменились. Poster не затрагивался.
+- Никаких внешних запросов, POST, публичных URL, tunnel, webhook delivery или
+  изменений SumUp/Poster не выполнялось. Secrets, телефоны и card data в
+  tracked-файлы не добавлялись.
+- Проверки: `npm test` — 62 теста; `npm run typecheck`; `npm run build`;
+  `git diff --check`.
+- Commit: текущий коммит, содержащий эту запись.
+
 ### Локальная связь payment ↔ order и webhook-контракт
 
 - Добавлена локальная модель SumUp payment, связанная с одним order через
