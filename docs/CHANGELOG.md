@@ -5,6 +5,53 @@
 
 ## 26 августа 2026
 
+### Контролируемый SumUp sandbox E2E: webhook не доставлен
+
+- Добавлен отдельный sandbox-only harness, не связанный с `server.ts`: он
+  поднимает Fastify только с `POST /webhooks/sumup`, file-backed SQLite,
+  существующим `ProcessSumUpWebhookService` и реальным read-only
+  `SumUpSandboxCheckoutVerifier`. Вспомогательные команды создают один checkout,
+  проверяют локальное состояние и разрешают duplicate replay только для уже
+  подтверждённой `paid` пары.
+- Hosted Checkout builder получил опциональный строго HTTPS `return_url`.
+  Добавлен безопасный checkout creation client: один authenticated POST без
+  retry, строгая проверка `201`, reference, merchant, суммы, EUR, `PENDING` и
+  HTTPS hosted URL. API key и response body не входят в ошибки.
+- Read-only Get Merchant непосредственно перед тестом подтвердил настроенный
+  test merchant, `sandbox: true`, страну IE и EUR. Локальный route слушал только
+  `127.0.0.1`; временный SSH HTTPS tunnel успешно прошёл GET smoke-check с
+  ожидаемым `404`, подтверждающим отсутствие публичного GET route.
+- Создан ровно один новый sandbox Hosted Checkout на `100` евроцентов с
+  `return_url` временного tunnel. SumUp вернул `201` и `PENDING`; новый локальный
+  test order и payment были записаны одной SQLite-транзакцией. Checkout URL и
+  локальные идентификаторы хранились только в приватном временном состоянии и
+  не выводились.
+- Пользователь сообщил о завершении Hosted Checkout, ранее визуально
+  подтверждённого как SumUp `Test mode`. Однако сервер не получил ни одного
+  webhook request: безопасный
+  `webhook_processed` log отсутствовал, а SQLite после пассивного ожидания
+  сохранила order в `awaiting_payment`, payment в `pending`, без `paid_at` и
+  successful transaction ID.
+- Из-за отсутствия webhook существующий verifier не вызывался и authenticated
+  read-only GET checkout/transaction после оплаты не выполнялся. Success page
+  не использовалась как доказательство оплаты, состояние вручную не менялось.
+  Duplicate replay не выполнялся, потому что его обязательное условие — уже
+  подтверждённая локальная `paid` пара — не наступило. Причина отсутствия
+  provider delivery не подтверждена; автоматические обходы и новая попытка не
+  предпринимались.
+- После проверки локальный сервер и HTTPS tunnel остановлены, browser tab
+  закрыт, приватные временные artifacts окончательно удалены. POST в Poster,
+  production Sushi Planet, реальные деньги, ChoiceQR,
+  новый checkout, payment retry или webhook subscription не выполнялись.
+- Добавлено 15 новых mock-тестов checkout creation/return URL; весь сетевой
+  транспорт в тестах внедрён и замокирован. Новые зависимости не добавлялись.
+  README и PLAN не менялись, потому что sandbox E2E не завершён.
+- Проверки: `npm test` — 105 тестов; `npm run typecheck`; `npm run build`;
+  `git diff --check`.
+- Result: partial — sandbox checkout/payment выполнены, но webhook delivery,
+  verifier-backed `paid` и duplicate остаются неподтверждёнными.
+- Commit: текущий коммит, содержащий эту запись.
+
 ### Безопасный SumUp sandbox checkout/transaction verifier
 
 - Добавлен `SumUpSandboxCheckoutVerifier`, совместимый с существующей

@@ -75,6 +75,35 @@ describe("buildSumUpHostedCheckout", () => {
     expect(build(2).checkoutReference).not.toBe(build(1).checkoutReference);
   });
 
+  it("adds only an explicitly supplied HTTPS webhook return URL", () => {
+    expect(
+      buildSumUpHostedCheckout({
+        order: createAwaitingPaymentOrder(),
+        paymentAttempt: 1,
+        merchant: testMerchant,
+        returnUrl: "https://sandbox-tunnel.invalid/webhooks/sumup",
+      }).payload,
+    ).toMatchObject({
+      return_url: "https://sandbox-tunnel.invalid/webhooks/sumup",
+    });
+  });
+
+  it.each([
+    "http://sandbox-tunnel.invalid/webhooks/sumup",
+    "https://user:password@sandbox-tunnel.invalid/webhooks/sumup",
+    "https://sandbox-tunnel.invalid/webhooks/sumup#fragment",
+    "not-a-url",
+  ])("rejects unsafe return URL %s", (returnUrl) => {
+    expect(() =>
+      buildSumUpHostedCheckout({
+        order: createAwaitingPaymentOrder(),
+        paymentAttempt: 1,
+        merchant: testMerchant,
+        returnUrl,
+      }),
+    ).toThrow("return URL must be a valid HTTPS URL");
+  });
+
   it("rejects orders that are not awaiting payment", () => {
     const draft = setPickup(
       addItem(createOrder(), {

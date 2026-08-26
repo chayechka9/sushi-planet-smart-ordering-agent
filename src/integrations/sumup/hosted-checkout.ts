@@ -12,6 +12,7 @@ export interface SumUpHostedCheckoutPayload {
   amount: number;
   currency: "EUR";
   merchant_code: string;
+  return_url?: string;
   hosted_checkout: {
     enabled: true;
   };
@@ -21,6 +22,7 @@ export interface BuildSumUpHostedCheckoutInput {
   order: Order;
   paymentAttempt: number;
   merchant: SumUpMerchantSummary;
+  returnUrl?: string;
 }
 
 export interface SumUpHostedCheckoutPreparation {
@@ -87,6 +89,11 @@ export function buildSumUpHostedCheckout(
     );
   }
 
+  const returnUrl =
+    input.returnUrl === undefined
+      ? undefined
+      : normalizeHttpsReturnUrl(input.returnUrl);
+
   return {
     checkoutReference,
     amountCents: totalCents,
@@ -95,11 +102,36 @@ export function buildSumUpHostedCheckout(
       amount,
       currency,
       merchant_code: input.merchant.merchantCode.trim(),
+      ...(returnUrl === undefined ? {} : { return_url: returnUrl }),
       hosted_checkout: {
         enabled: true,
       },
     },
   };
+}
+
+function normalizeHttpsReturnUrl(value: string): string {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new SumUpCheckoutPreparationError(
+      "SumUp return URL must be a valid HTTPS URL",
+    );
+  }
+
+  if (
+    url.protocol !== "https:" ||
+    url.username.length > 0 ||
+    url.password.length > 0 ||
+    url.hash.length > 0
+  ) {
+    throw new SumUpCheckoutPreparationError(
+      "SumUp return URL must be a valid HTTPS URL without credentials or fragment",
+    );
+  }
+
+  return url.href;
 }
 
 function assertSandboxEuroMerchant(merchant: SumUpMerchantSummary): void {

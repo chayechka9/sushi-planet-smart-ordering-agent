@@ -10,6 +10,10 @@
     "start": "node dist/server.js",
     "poster:check-menu": "tsx src/scripts/check-poster-menu.ts",
     "sumup:check-access": "tsx src/scripts/check-sumup-access.ts",
+    "sumup:e2e:serve": "tsx src/scripts/run-sumup-sandbox-e2e-webhook.ts",
+    "sumup:e2e:create": "tsx src/scripts/create-sumup-sandbox-e2e-checkout.ts",
+    "sumup:e2e:status": "tsx src/scripts/check-sumup-sandbox-e2e-state.ts",
+    "sumup:e2e:duplicate": "tsx src/scripts/replay-sumup-sandbox-e2e-webhook.ts",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json"
   },
