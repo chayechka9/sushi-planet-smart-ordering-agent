@@ -3,6 +3,39 @@
 Здесь хранится подробная техническая история завершённых изменений. README
 описывает проект и его границы, а PLAN — крупные этапы и их высокий уровень.
 
+## 26 августа 2026
+
+### Безопасный SumUp sandbox checkout/transaction verifier
+
+- Добавлен `SumUpSandboxCheckoutVerifier`, совместимый с существующей
+  dependency `SumUpCheckoutVerifier`. Он выполняет через внедряемый `fetch`
+  ровно два последовательных read-only запроса: получает checkout по ID, затем
+  получает связанную successful transaction по ID из checkout.
+- До возврата `VerifiedSumUpCheckout` verifier требует ранее подтверждённый
+  sandbox merchant с EUR, точное совпадение checkout ID и merchant, непустой
+  checkout reference, положительную сумму не более чем с двумя десятичными
+  знаками, `currency: "EUR"`, `status: "PAID"` и ровно одну связанную
+  transaction со статусом `SUCCESSFUL`.
+- Отдельный transaction response повторно проверяется по ID, sandbox merchant,
+  статусу, EUR и точному совпадению суммы с checkout. Суммы checkout и
+  transaction нормализуются из major units в безопасные целые евроценты;
+  наружу возвращаются только поля существующего `VerifiedSumUpCheckout`.
+- Запросы используют Bearer credential только в `Authorization`, `GET` без
+  body, manual redirect и timeout. Ошибки содержат только безопасный этап и при
+  необходимости HTTP status; API key, response body, checkout URL, phone и
+  другие поля ответа в diagnostics не попадают.
+- Добавлен 21 mock-тест: точные два GET, нормализация сумм, sandbox/EUR guards,
+  checkout/reference/merchant/status checks, отсутствие или несколько
+  successful transactions, transaction ID/status/merchant/amount checks и
+  неразглашение данных при HTTP, network и invalid-JSON ошибках.
+- Verifier не подключён в `server.ts`; SQLite, Poster, ChoiceQR, checkout
+  creation, публичный URL и webhook subscription не менялись. `.env` не
+  читался, настоящие запросы в SumUp или Poster не выполнялись, новые
+  зависимости не добавлялись.
+- Проверки: `npm test` — 90 тестов; `npm run typecheck`; `npm run build`;
+  `git diff --check`.
+- Commit: текущий коммит, содержащий эту запись.
+
 ## 25 августа 2026
 
 ### Локальный серверный flow SumUp webhook
