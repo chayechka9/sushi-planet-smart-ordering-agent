@@ -47,28 +47,41 @@ export class SqliteOrderPaymentRepositoryError extends Error {
   }
 }
 
+export interface SqliteOrderPaymentRepositoryOptions {
+  readOnly?: boolean;
+}
+
 /**
  * File-backed local storage for an order and its single SumUp payment.
  * Successful reconciliation updates both records in one SQLite transaction.
  */
 export class SqliteOrderPaymentRepository {
   private readonly database: DatabaseSync;
+  private readonly readOnly: boolean;
   private closed = false;
 
-  constructor(databasePath: string) {
+  constructor(
+    databasePath: string,
+    options: SqliteOrderPaymentRepositoryOptions = {},
+  ) {
     if (databasePath.trim().length === 0) {
       throw new SqliteOrderPaymentRepositoryError(
         "SQLite database path must not be empty",
       );
     }
 
-    this.database = new DatabaseSync(databasePath);
+    this.readOnly = options.readOnly ?? false;
+    this.database = new DatabaseSync(databasePath, {
+      readOnly: this.readOnly,
+    });
 
     try {
       this.database.exec("PRAGMA foreign_keys = ON");
       this.database.exec("PRAGMA busy_timeout = 5000");
-      this.database.exec("PRAGMA synchronous = FULL");
-      applySqliteMigrations(this.database);
+      if (!this.readOnly) {
+        this.database.exec("PRAGMA synchronous = FULL");
+        applySqliteMigrations(this.database);
+      }
     } catch (error) {
       this.database.close();
       throw error;
@@ -76,6 +89,7 @@ export class SqliteOrderPaymentRepository {
   }
 
   createOrderWithPayment(order: Order, payment: PaymentRecord): void {
+    this.assertWritable();
     assertInitialPair(order, payment);
 
     this.runInTransaction(() => {
@@ -191,6 +205,7 @@ export class SqliteOrderPaymentRepository {
     checkout: VerifiedSumUpCheckout,
     now: Date = new Date(),
   ): PaymentReconciliationResult {
+    this.assertWritable();
     return this.runInTransaction(() => {
       const payment = this.findByCheckoutId(checkout.checkoutId);
       if (payment === undefined) {
@@ -276,6 +291,14 @@ export class SqliteOrderPaymentRepository {
     if (!this.closed) {
       this.database.close();
       this.closed = true;
+    }
+  }
+
+  private assertWritable(): void {
+    if (this.readOnly) {
+      throw new SqliteOrderPaymentRepositoryError(
+        "SQLite repository is read-only",
+      );
     }
   }
 

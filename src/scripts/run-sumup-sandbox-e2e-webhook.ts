@@ -10,24 +10,19 @@ import { SumUpSandboxCheckoutVerifier } from "../integrations/sumup/checkout-ver
 import { SumUpClient } from "../integrations/sumup/client.js";
 import { registerSumUpWebhookRoute } from "../routes/sumup-webhook.js";
 import {
-  requireEnvironmentValue,
+  ensurePrivateRecoveryDirectory,
   requireLocalPort,
+  resolveSumUpE2eRecoveryPaths,
   writePrivateJson,
 } from "./sumup-e2e-local-state.js";
 import { observeSandboxWebhookService } from "./sumup-e2e-webhook-observability.js";
 import { SqliteOrderPaymentRepository } from "../storage/sqlite/order-payment-repository.js";
 
 async function main(): Promise<void> {
-  const databasePath = requireEnvironmentValue(
-    process.env,
-    "SUMUP_E2E_DB_PATH",
-  );
-  const preflightPath = requireEnvironmentValue(
-    process.env,
-    "SUMUP_E2E_PREFLIGHT_PATH",
-  );
+  const paths = resolveSumUpE2eRecoveryPaths();
+  ensurePrivateRecoveryDirectory(paths.directoryPath);
   const port = requireLocalPort(process.env);
-  if (existsSync(preflightPath)) {
+  if (existsSync(paths.preflightPath)) {
     throw new Error("Sandbox E2E merchant preflight was already performed");
   }
 
@@ -39,9 +34,9 @@ async function main(): Promise<void> {
     throw new Error("Configured SumUp merchant is not an EUR sandbox");
   }
 
-  writePrivateJson(preflightPath, merchant);
+  writePrivateJson(paths.preflightPath, merchant);
 
-  const repository = new SqliteOrderPaymentRepository(databasePath);
+  const repository = new SqliteOrderPaymentRepository(paths.databasePath);
   const verifier = new SumUpSandboxCheckoutVerifier({
     apiKey: config.apiKey,
     merchant,

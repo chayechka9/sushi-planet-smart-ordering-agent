@@ -5,6 +5,37 @@
 
 ## 26 августа 2026
 
+### Сохраняемый recovery lifecycle SumUp sandbox E2E
+
+- Sandbox E2E harness теперь сохраняет после создания checkout минимальный
+  recovery state и изолированную SQLite до завершения диагностики. State
+  содержит только test order/payment ID, checkout ID/reference и locator базы;
+  hosted checkout URL хранится отдельно. Локальная recovery-директория и все её
+  файлы исключены из Git и доступны только владельцу.
+- `webhook_received`, `verification_failed`, успешный `paid` без duplicate и
+  другие незавершённые исходы больше не удаляют state или SQLite. Автоматическая
+  очистка разрешена только после уже подтверждённого `paid`, локального
+  duplicate replay с неизменными timestamps/transaction и пустого `204`;
+  отдельная явная cleanup-команда остаётся доступна для контролируемого сброса.
+- Добавлен read-only recovery verifier: он восстанавливает binding из state и
+  SQLite, открывает repository без миграций и записей и ограничивает SumUp
+  verifier ровно двумя `GET` без retry. Результат повторно сверяется с локальными
+  reference, merchant, EUR и суммой; безопасный вывод не содержит locator,
+  URL, credentials, response body или customer data.
+- Unit/mock-тесты покрывают owner-only минимальный state, сохранение после
+  `verification_failed` и `paid`, запрет преждевременной очистки, cleanup после
+  `paid + duplicate` и явной команды, read-only SQLite и отсутствие
+  чувствительных данных в state/результате. Настоящая сеть не использовалась.
+- `.env` не читался; server/tunnel не запускались; checkout, оплата и Poster
+  order не создавались; production bootstrap, Poster, ChoiceQR и SQLite schema
+  не менялись.
+- Проверки: `npm test` — 122 теста; `npm run typecheck`; `npm run build`;
+  `git diff --check`.
+- Result: complete — незавершённая sandbox-попытка теперь остаётся адресно
+  диагностируемой; следующая sandbox-оплата по-прежнему требует отдельного
+  preflight и явного разрешения.
+- Commit: текущий коммит, содержащий эту запись.
+
 ### Актуальный SumUp transaction verifier и наблюдаемость webhook
 
 - Transaction verification переведена с недокументированного

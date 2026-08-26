@@ -18,38 +18,31 @@ import {
 import { buildSumUpHostedCheckout } from "../integrations/sumup/hosted-checkout.js";
 import { SqliteOrderPaymentRepository } from "../storage/sqlite/order-payment-repository.js";
 import {
+  ensurePrivateRecoveryDirectory,
   readMerchantPreflight,
   requireEnvironmentValue,
+  resolveSumUpE2eRecoveryPaths,
   writePrivateJson,
+  writeSumUpE2eRecoveryState,
 } from "./sumup-e2e-local-state.js";
 
 async function main(): Promise<void> {
-  const databasePath = requireEnvironmentValue(
-    process.env,
-    "SUMUP_E2E_DB_PATH",
-  );
-  const preflightPath = requireEnvironmentValue(
-    process.env,
-    "SUMUP_E2E_PREFLIGHT_PATH",
-  );
-  const statePath = requireEnvironmentValue(
-    process.env,
-    "SUMUP_E2E_STATE_PATH",
-  );
-  const attemptMarkerPath = requireEnvironmentValue(
-    process.env,
-    "SUMUP_E2E_ATTEMPT_MARKER_PATH",
-  );
+  const paths = resolveSumUpE2eRecoveryPaths();
+  ensurePrivateRecoveryDirectory(paths.directoryPath);
   const returnUrl = normalizeWebhookReturnUrl(
     requireEnvironmentValue(process.env, "SUMUP_E2E_RETURN_URL"),
   );
 
-  if (existsSync(statePath) || existsSync(attemptMarkerPath)) {
+  if (
+    existsSync(paths.statePath) ||
+    existsSync(paths.attemptMarkerPath) ||
+    existsSync(paths.hostedCheckoutUrlPath)
+  ) {
     throw new Error("Sandbox E2E checkout attempt already exists");
   }
 
   const config = loadSumUpSandboxConfig();
-  const merchant = readMerchantPreflight(preflightPath);
+  const merchant = readMerchantPreflight(paths.preflightPath);
   if (
     merchant.merchantCode !== config.merchantCode ||
     !merchant.sandbox ||
@@ -82,10 +75,10 @@ async function main(): Promise<void> {
     merchant,
     returnUrl,
   });
-  const repository = new SqliteOrderPaymentRepository(databasePath);
+  const repository = new SqliteOrderPaymentRepository(paths.databasePath);
 
   try {
-    writePrivateJson(attemptMarkerPath, {
+    writePrivateJson(paths.attemptMarkerPath, {
       startedAt: now.toISOString(),
       checkoutLimit: 1,
       paymentAttemptLimit: 1,
@@ -104,17 +97,18 @@ async function main(): Promise<void> {
       currency: checkout.currency,
       now,
     });
-    repository.createOrderWithPayment(order, payment);
 
-    writePrivateJson(statePath, {
+    writeSumUpE2eRecoveryState(paths.statePath, {
       orderId: order.id,
+      paymentId: payment.checkoutId,
       checkoutId: checkout.checkoutId,
       checkoutReference: checkout.checkoutReference,
-      merchantCode: checkout.merchantCode,
-      amountCents: checkout.amountCents,
-      currency: checkout.currency,
+      databasePath: paths.databasePath,
+    });
+    writePrivateJson(paths.hostedCheckoutUrlPath, {
       hostedCheckoutUrl: checkout.hostedCheckoutUrl,
     });
+    repository.createOrderWithPayment(order, payment);
 
     console.log(
       JSON.stringify({
@@ -125,7 +119,8 @@ async function main(): Promise<void> {
         localOrderPaymentStored: true,
         amountCents: checkout.amountCents,
         currency: checkout.currency,
-        hostedCheckoutUrlStoredPrivately: true,
+        recoveryStatePreserved: true,
+        hostedCheckoutUrlStoredSeparately: true,
         retry: false,
         production: false,
         poster: false,

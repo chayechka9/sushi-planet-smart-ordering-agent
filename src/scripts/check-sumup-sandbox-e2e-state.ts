@@ -1,23 +1,21 @@
 import { SqliteOrderPaymentRepository } from "../storage/sqlite/order-payment-repository.js";
 import {
-  readSumUpE2eLocalState,
-  requireEnvironmentValue,
+  readSumUpE2eRecoveryState,
+  resolveSumUpE2eRecoveryPaths,
 } from "./sumup-e2e-local-state.js";
 
-const databasePath = requireEnvironmentValue(
-  process.env,
-  "SUMUP_E2E_DB_PATH",
-);
-const statePath = requireEnvironmentValue(
-  process.env,
-  "SUMUP_E2E_STATE_PATH",
-);
-const state = readSumUpE2eLocalState(statePath);
-const repository = new SqliteOrderPaymentRepository(databasePath);
+const paths = resolveSumUpE2eRecoveryPaths();
+const state = readSumUpE2eRecoveryState(paths.statePath);
+if (state.databasePath !== paths.databasePath) {
+  throw new Error("Sandbox E2E recovery database path does not match");
+}
+const repository = new SqliteOrderPaymentRepository(state.databasePath, {
+  readOnly: true,
+});
 
 try {
   const order = repository.findOrderById(state.orderId);
-  const payment = repository.findByCheckoutId(state.checkoutId);
+  const payment = repository.findByCheckoutId(state.paymentId);
   if (order === undefined || payment === undefined) {
     throw new Error("Sandbox E2E local order/payment pair is missing");
   }

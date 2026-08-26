@@ -14,6 +14,8 @@
     "sumup:e2e:create": "tsx src/scripts/create-sumup-sandbox-e2e-checkout.ts",
     "sumup:e2e:status": "tsx src/scripts/check-sumup-sandbox-e2e-state.ts",
     "sumup:e2e:duplicate": "tsx src/scripts/replay-sumup-sandbox-e2e-webhook.ts",
+    "sumup:e2e:recover": "tsx src/scripts/recover-sumup-sandbox-e2e-verification.ts",
+    "sumup:e2e:cleanup": "tsx src/scripts/cleanup-sumup-sandbox-e2e-state.ts",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json"
   },

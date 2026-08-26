@@ -12,3 +12,4 @@ coverage/
 *.db
 *.db-shm
 *.db-wal
+.sumup-e2e/

@@ -50,6 +50,16 @@ function openRepository(databasePath: string): SqliteOrderPaymentRepository {
   return repository;
 }
 
+function openReadOnlyRepository(
+  databasePath: string,
+): SqliteOrderPaymentRepository {
+  const repository = new SqliteOrderPaymentRepository(databasePath, {
+    readOnly: true,
+  });
+  repositories.push(repository);
+  return repository;
+}
+
 function createPair(suffix: string): {
   order: Order;
   payment: PaymentRecord;
@@ -110,6 +120,33 @@ function createVerifiedCheckout(
 }
 
 describe("SQLite order/payment repository", () => {
+  it("reads an existing pair without allowing recovery mutations", () => {
+    const databasePath = createDatabasePath();
+    const pair = createPair("read-only");
+    const writableRepository = openRepository(databasePath);
+    writableRepository.createOrderWithPayment(pair.order, pair.payment);
+    writableRepository.close();
+
+    const repository = openReadOnlyRepository(databasePath);
+    expect(repository.findOrderById(pair.order.id)).toEqual(pair.order);
+    expect(repository.findByCheckoutId(pair.payment.checkoutId)).toEqual(
+      pair.payment,
+    );
+    expect(() =>
+      repository.createOrderWithPayment(pair.order, pair.payment),
+    ).toThrow("SQLite repository is read-only");
+    expect(() =>
+      repository.reconcileVerifiedSumUpCheckout(
+        createVerifiedCheckout(pair.payment),
+        paidAt,
+      ),
+    ).toThrow("SQLite repository is read-only");
+    expect(repository.findOrderById(pair.order.id)).toEqual(pair.order);
+    expect(repository.findByCheckoutId(pair.payment.checkoutId)).toEqual(
+      pair.payment,
+    );
+  });
+
   it("migrates and restores an order/payment pair after reopening", () => {
     const databasePath = createDatabasePath();
     const pair = createPair("restart");

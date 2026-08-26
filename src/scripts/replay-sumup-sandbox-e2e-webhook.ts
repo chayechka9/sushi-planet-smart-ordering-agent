@@ -1,25 +1,23 @@
 import { SqliteOrderPaymentRepository } from "../storage/sqlite/order-payment-repository.js";
 import {
-  readSumUpE2eLocalState,
-  requireEnvironmentValue,
+  cleanupSumUpE2eRecovery,
+  readSumUpE2eRecoveryState,
   requireLocalPort,
+  resolveSumUpE2eRecoveryPaths,
 } from "./sumup-e2e-local-state.js";
 
-const databasePath = requireEnvironmentValue(
-  process.env,
-  "SUMUP_E2E_DB_PATH",
-);
-const statePath = requireEnvironmentValue(
-  process.env,
-  "SUMUP_E2E_STATE_PATH",
-);
+const paths = resolveSumUpE2eRecoveryPaths();
 const port = requireLocalPort(process.env);
-const state = readSumUpE2eLocalState(statePath);
-const repository = new SqliteOrderPaymentRepository(databasePath);
+const state = readSumUpE2eRecoveryState(paths.statePath);
+if (state.databasePath !== paths.databasePath) {
+  throw new Error("Sandbox E2E recovery database path does not match");
+}
+const repository = new SqliteOrderPaymentRepository(state.databasePath);
+let summary: Record<string, unknown> | undefined;
 
 try {
   const orderBefore = repository.findOrderById(state.orderId);
-  const paymentBefore = repository.findByCheckoutId(state.checkoutId);
+  const paymentBefore = repository.findByCheckoutId(state.paymentId);
   if (
     orderBefore?.status !== "paid" ||
     paymentBefore?.status !== "paid" ||
@@ -46,29 +44,49 @@ try {
   }
 
   const orderAfter = repository.findOrderById(state.orderId);
-  const paymentAfter = repository.findByCheckoutId(state.checkoutId);
+  const paymentAfter = repository.findByCheckoutId(state.paymentId);
   if (orderAfter === undefined || paymentAfter === undefined) {
     throw new Error("Duplicate webhook check lost local state");
   }
 
-  console.log(
-    JSON.stringify({
-      received: true,
-      outcome: "duplicate",
-      orderStatus: orderAfter.status,
-      paymentStatus: paymentAfter.status,
-      orderTimestampUnchanged:
-        orderAfter.updatedAt === orderBefore.updatedAt,
-      paymentTimestampUnchanged:
-        paymentAfter.updatedAt === paymentBefore.updatedAt,
-      paidAtUnchanged: paymentAfter.paidAt === paymentBefore.paidAt,
-      successfulTransactionUnchanged:
-        paymentAfter.successfulTransactionId ===
-        paymentBefore.successfulTransactionId,
-      externalVerificationCalls: 0,
-      posterSubmitted: orderAfter.status === "submitted_to_poster",
-    }),
-  );
+  const orderTimestampUnchanged =
+    orderAfter.updatedAt === orderBefore.updatedAt;
+  const paymentTimestampUnchanged =
+    paymentAfter.updatedAt === paymentBefore.updatedAt;
+  const paidAtUnchanged = paymentAfter.paidAt === paymentBefore.paidAt;
+  const successfulTransactionUnchanged =
+    paymentAfter.successfulTransactionId ===
+    paymentBefore.successfulTransactionId;
+  if (
+    !orderTimestampUnchanged ||
+    !paymentTimestampUnchanged ||
+    !paidAtUnchanged ||
+    !successfulTransactionUnchanged
+  ) {
+    throw new Error("Duplicate webhook check changed local state");
+  }
+
+  summary = {
+    received: true,
+    outcome: "duplicate",
+    orderStatus: orderAfter.status,
+    paymentStatus: paymentAfter.status,
+    orderTimestampUnchanged,
+    paymentTimestampUnchanged,
+    paidAtUnchanged,
+    successfulTransactionUnchanged,
+    externalVerificationCalls: 0,
+    posterSubmitted: orderAfter.status === "submitted_to_poster",
+  };
 } finally {
   repository.close();
 }
+
+if (summary === undefined) {
+  throw new Error("Duplicate webhook check did not complete");
+}
+const cleanup = cleanupSumUpE2eRecovery(paths, state, "verified", {
+  paid: true,
+  duplicateVerified: true,
+});
+console.log(JSON.stringify({ ...summary, recoveryCleaned: cleanup.cleaned }));
