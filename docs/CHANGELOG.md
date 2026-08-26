@@ -5,6 +5,39 @@
 
 ## 26 августа 2026
 
+### Актуальный SumUp transaction verifier и наблюдаемость webhook
+
+- Transaction verification переведена с недокументированного
+  `/v0.1/me/transactions` на актуальный merchant-scoped read-only endpoint
+  `GET /v2.1/merchants/{merchant_code}/transactions?id={transaction_id}`.
+  Сохранены строгие проверки checkout/transaction ID, sandbox merchant, EUR,
+  суммы и статуса `SUCCESSFUL`; наружу по-прежнему возвращаются только данные
+  существующего `VerifiedSumUpCheckout`.
+- Mock-тесты проверяют точные checkout и transaction URL, `GET` без body,
+  `Accept`, Bearer header, manual redirect и отсутствие чувствительных данных в
+  diagnostics при HTTP, network и invalid-JSON ошибках. Настоящая сеть не
+  использовалась.
+- Только sandbox E2E harness получил безопасные события до и после обработки:
+  `webhook_received`, `verification_failed`, `paid` и `duplicate`. Логи не
+  содержат webhook body, checkout/transaction ID, URL, API key, phone или текст
+  ошибки; остальные безопасные исходы остаются различимыми без идентификаторов.
+- Успешно обработанный `POST /webhooks/sumup` теперь отвечает пустым `204`.
+  Невалидный callback сохраняет безопасный `400`, ошибка verifier — безопасный
+  `503` для retry и не переводит order/payment в `paid`. Локальный duplicate
+  helper обновлён под пустой ответ и по-прежнему требует уже оплаченную пару и
+  проверяет отсутствие повторного изменения SQLite.
+- Добавлено 6 тестовых случаев: transaction network/invalid-JSON diagnostics,
+  три sandbox observability сценария и неизменность order/payment при ошибке
+  verifier. Production bootstrap, SQLite schema, Poster и ChoiceQR не менялись.
+  `.env` не читался; server/tunnel не запускались; запросы в SumUp, Poster или
+  localhost, checkout, оплаты и заказы не создавались.
+- Проверки: `npm test` — 111 тестов; `npm run typecheck`; `npm run build`;
+  `git diff --check`.
+- Result: complete — подтверждённая техническая проблема verifier исправлена;
+  статус уже существующей sandbox-оплаты и фактическая доставка её webhook
+  остаются отдельной read-only проверкой.
+- Commit: текущий коммит, содержащий эту запись.
+
 ### Контролируемый SumUp sandbox E2E: webhook не доставлен
 
 - Добавлен отдельный sandbox-only harness, не связанный с `server.ts`: он

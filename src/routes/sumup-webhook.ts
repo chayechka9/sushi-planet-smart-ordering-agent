@@ -1,18 +1,15 @@
 import type { FastifyPluginAsync } from "fastify";
 
-import type {
-  ProcessSumUpWebhookService,
-  SumUpWebhookProcessingResult,
-} from "../application/process-sumup-webhook.js";
+import type { ProcessSumUpWebhookService } from "../application/process-sumup-webhook.js";
 import { SumUpWebhookContractError } from "../integrations/sumup/webhook.js";
 
 export interface SumUpWebhookRouteOptions {
   service: Pick<ProcessSumUpWebhookService, "process">;
 }
 
-interface SafeSumUpWebhookResponse {
-  received: boolean;
-  outcome: SumUpWebhookProcessingResult["outcome"] | "invalid" | "retry";
+interface SafeSumUpWebhookErrorResponse {
+  received: false;
+  outcome: "invalid" | "retry";
 }
 
 /**
@@ -22,15 +19,12 @@ interface SafeSumUpWebhookResponse {
 export const registerSumUpWebhookRoute: FastifyPluginAsync<
   SumUpWebhookRouteOptions
 > = async (app, options) => {
-  app.post<{ Reply: SafeSumUpWebhookResponse }>(
+  app.post<{ Reply: SafeSumUpWebhookErrorResponse | void }>(
     "/webhooks/sumup",
     async (request, reply) => {
       try {
-        const result = await options.service.process(request.body);
-        return reply.code(200).send({
-          received: true,
-          outcome: result.outcome,
-        });
+        await options.service.process(request.body);
+        return reply.code(204).send();
       } catch (error) {
         if (error instanceof SumUpWebhookContractError) {
           return reply.code(400).send({

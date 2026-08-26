@@ -14,6 +14,7 @@ import {
   requireLocalPort,
   writePrivateJson,
 } from "./sumup-e2e-local-state.js";
+import { observeSandboxWebhookService } from "./sumup-e2e-webhook-observability.js";
 import { SqliteOrderPaymentRepository } from "../storage/sqlite/order-payment-repository.js";
 
 async function main(): Promise<void> {
@@ -46,15 +47,9 @@ async function main(): Promise<void> {
     merchant,
   });
   const service = new ProcessSumUpWebhookService({ repository, verifier });
-  const trackedService: Pick<ProcessSumUpWebhookService, "process"> = {
-    process: async (body) => {
-      const result = await service.process(body);
-      console.log(
-        JSON.stringify({ event: "webhook_processed", outcome: result.outcome }),
-      );
-      return result;
-    },
-  };
+  const trackedService = observeSandboxWebhookService(service, (record) => {
+    console.log(JSON.stringify(record));
+  });
 
   const app = Fastify({ logger: false });
   app.register(registerSumUpWebhookRoute, { service: trackedService });

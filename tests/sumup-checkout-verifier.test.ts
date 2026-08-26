@@ -127,7 +127,7 @@ describe("SumUpSandboxCheckoutVerifier", () => {
       `https://api.sumup.com/v0.1/checkouts/${checkoutId}`,
     );
     expect(transactionInput.href).toBe(
-      `https://api.sumup.com/v0.1/me/transactions?id=${transactionId}`,
+      `https://api.sumup.com/v2.1/merchants/${merchantCode}/transactions?id=${transactionId}`,
     );
     for (const init of [checkoutInit, transactionInit]) {
       expect(init?.method).toBe("GET");
@@ -322,24 +322,58 @@ describe("SumUpSandboxCheckoutVerifier", () => {
     expect(diagnostic).not.toContain("private-phone-marker");
   });
 
-  it("keeps transaction HTTP diagnostics safe", async () => {
-    const privateMarker = `private-transaction-${apiKey}-${transactionId}`;
-    const fetcher = vi
-      .fn<Fetcher>()
-      .mockResolvedValueOnce(Response.json(checkoutResponse()))
-      .mockResolvedValueOnce(
-        Response.json({ detail: privateMarker }, { status: 502 }),
-      );
-    const verifier = createVerifier(fetcher);
-    const error = await captureError(verifier.verifyCheckout(checkoutId));
-    const diagnostic = `${error.name}: ${error.message}`;
-
-    expect(error).toMatchObject({
-      name: "SumUpCheckoutVerificationError",
+  it.each([
+    {
+      name: "transaction HTTP failure",
+      transactionResult: () =>
+        Response.json(
+          { detail: `private-transaction-${apiKey}-${transactionId}` },
+          { status: 502 },
+        ),
       status: 502,
-    });
-    expect(diagnostic).not.toContain(apiKey);
-    expect(diagnostic).not.toContain(transactionId);
-    expect(diagnostic).not.toContain(privateMarker);
-  });
+    },
+    {
+      name: "transaction network failure",
+      transactionResult: () =>
+        new Error(`private-network-${apiKey}-${transactionId}`),
+      status: null,
+    },
+    {
+      name: "transaction invalid JSON",
+      transactionResult: () =>
+        new Response(`private-json-${apiKey}-${transactionId}`, {
+          status: 200,
+        }),
+      status: 200,
+    },
+  ])(
+    "keeps $name diagnostics safe",
+    async ({ transactionResult, status }) => {
+      const result = transactionResult();
+      const fetcher = vi
+        .fn<Fetcher>()
+        .mockResolvedValueOnce(Response.json(checkoutResponse()));
+      if (result instanceof Error) {
+        fetcher.mockRejectedValueOnce(result);
+      } else {
+        fetcher.mockResolvedValueOnce(result);
+      }
+
+      const verifier = createVerifier(fetcher);
+      const error = await captureError(verifier.verifyCheckout(checkoutId));
+      const diagnostic = `${error.name}: ${error.message}`;
+
+      expect(error).toMatchObject({
+        name: "SumUpCheckoutVerificationError",
+        status,
+      });
+      expect(fetcher).toHaveBeenCalledTimes(2);
+      expect(diagnostic).not.toContain(apiKey);
+      expect(diagnostic).not.toContain(checkoutId);
+      expect(diagnostic).not.toContain(transactionId);
+      expect(diagnostic).not.toContain("private-transaction");
+      expect(diagnostic).not.toContain("private-network");
+      expect(diagnostic).not.toContain("private-json");
+    },
+  );
 });

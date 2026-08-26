@@ -170,8 +170,8 @@ describe("POST /webhooks/sumup", () => {
       payload: webhookBody(pair.payment.checkoutId),
     });
 
-    expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual({ received: true, outcome: "paid" });
+    expect(response.statusCode).toBe(204);
+    expect(response.body).toBe("");
     expect(verifyCheckout).toHaveBeenCalledOnce();
     expect(verifyCheckout).toHaveBeenCalledWith(pair.payment.checkoutId);
     expect(repository.findOrderById(pair.order.id)?.status).toBe("paid");
@@ -199,7 +199,8 @@ describe("POST /webhooks/sumup", () => {
       url: "/webhooks/sumup",
       payload: webhookBody(pair.payment.checkoutId),
     });
-    expect(first.json()).toEqual({ received: true, outcome: "paid" });
+    expect(first.statusCode).toBe(204);
+    expect(first.body).toBe("");
     verifyCheckout.mockClear();
 
     const duplicate = await app.inject({
@@ -208,11 +209,8 @@ describe("POST /webhooks/sumup", () => {
       payload: webhookBody(pair.payment.checkoutId),
     });
 
-    expect(duplicate.statusCode).toBe(200);
-    expect(duplicate.json()).toEqual({
-      received: true,
-      outcome: "duplicate",
-    });
+    expect(duplicate.statusCode).toBe(204);
+    expect(duplicate.body).toBe("");
     expect(verifyCheckout).not.toHaveBeenCalled();
     expect(repository.findOrderById(pair.order.id)?.status).toBe("paid");
     expect(fetchSpy).not.toHaveBeenCalled();
@@ -238,8 +236,8 @@ describe("POST /webhooks/sumup", () => {
         payload: webhookBody(pair.payment.checkoutId),
       });
 
-      expect(response.statusCode).toBe(200);
-      expect(response.json()).toEqual({ received: true, outcome });
+      expect(response.statusCode).toBe(204);
+      expect(response.body).toBe("");
       expect(verifyCheckout).toHaveBeenCalledOnce();
       expect(repository.findOrderById(pair.order.id)?.status).toBe(
         "awaiting_payment",
@@ -263,11 +261,8 @@ describe("POST /webhooks/sumup", () => {
       payload: webhookBody("checkout-unknown"),
     });
 
-    expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual({
-      received: true,
-      outcome: "unknown_checkout",
-    });
+    expect(response.statusCode).toBe(204);
+    expect(response.body).toBe("");
     expect(verifyCheckout).not.toHaveBeenCalled();
     expect(fetchSpy).not.toHaveBeenCalled();
   });
@@ -287,8 +282,8 @@ describe("POST /webhooks/sumup", () => {
       payload: { event_type: "FUTURE_EVENT", arbitrary: true },
     });
 
-    expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual({ received: true, outcome: "ignored" });
+    expect(response.statusCode).toBe(204);
+    expect(response.body).toBe("");
     expect(verifyCheckout).not.toHaveBeenCalled();
     expect(repository.findOrderById(pair.order.id)).toEqual(pair.order);
     expect(fetchSpy).not.toHaveBeenCalled();
@@ -318,6 +313,33 @@ describe("POST /webhooks/sumup", () => {
     expect(response.body).not.toContain(pair.payment.checkoutId);
     expect(response.body).not.toContain("checkout-different");
     expect(verifyCheckout).toHaveBeenCalledOnce();
+    expect(repository.findOrderById(pair.order.id)).toEqual(pair.order);
+    expect(repository.findByOrderId(pair.order.id)).toEqual(pair.payment);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("keeps the pair unpaid when verification fails", async () => {
+    const repository = openRepository();
+    const pair = createPair("verification-failed");
+    repository.createOrderWithPayment(pair.order, pair.payment);
+    const { app, verifyCheckout } = createHarness(
+      repository,
+      createVerifiedCheckout(pair.payment),
+    );
+    verifyCheckout.mockRejectedValueOnce(
+      new Error("private-verification-detail"),
+    );
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/webhooks/sumup",
+      payload: webhookBody(pair.payment.checkoutId),
+    });
+
+    expect(response.statusCode).toBe(503);
+    expect(response.json()).toEqual({ received: false, outcome: "retry" });
+    expect(response.body).not.toContain("private-verification-detail");
+    expect(response.body).not.toContain(pair.payment.checkoutId);
     expect(repository.findOrderById(pair.order.id)).toEqual(pair.order);
     expect(repository.findByOrderId(pair.order.id)).toEqual(pair.payment);
     expect(fetchSpy).not.toHaveBeenCalled();

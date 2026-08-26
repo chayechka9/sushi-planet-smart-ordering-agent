@@ -41,11 +41,7 @@ try {
       signal: AbortSignal.timeout(5_000),
     },
   );
-  const body = (await response.json()) as unknown;
-  if (
-    response.status !== 200 ||
-    !isDuplicateResponse(body)
-  ) {
+  if (response.status !== 204 || (await response.text()) !== "") {
     throw new Error("Duplicate webhook check returned an unexpected response");
   }
 
@@ -75,17 +71,4 @@ try {
   );
 } finally {
   repository.close();
-}
-
-function isDuplicateResponse(
-  value: unknown,
-): value is { received: true; outcome: "duplicate" } {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    "received" in value &&
-    value.received === true &&
-    "outcome" in value &&
-    value.outcome === "duplicate"
-  );
 }

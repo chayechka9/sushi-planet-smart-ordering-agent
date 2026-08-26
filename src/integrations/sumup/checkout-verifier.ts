@@ -107,7 +107,10 @@ export class SumUpSandboxCheckoutVerifier {
     const successfulTransactionId = readSuccessfulTransactionId(
       checkoutPayload.transactions,
     );
-    const transactionUrl = new URL("v0.1/me/transactions", SUMUP_API_BASE_URL);
+    const transactionUrl = new URL(
+      `v2.1/merchants/${encodeURIComponent(this.merchantCode)}/transactions`,
+      SUMUP_API_BASE_URL,
+    );
     transactionUrl.searchParams.set("id", successfulTransactionId);
     const transactionPayload = asRecord(
       await this.getJson(transactionUrl, "transaction"),
