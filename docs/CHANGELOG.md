@@ -5,6 +5,50 @@
 
 ## 10 сентября 2026
 
+### Одна разрешённая Poster sandbox-попытка с verified prepayment
+
+- Read-only preflight непосредственно перед попыткой подтвердил отдельный
+  тестовый аккаунт `sushi-planet-bot`, EUR, `Europe/Dublin`, spot `1` и три
+  видимых товара. Для попытки использован актуальный product `1` с ценой `1000`
+  евроцентов; незавершённого Poster recovery/SQLite state не обнаружено.
+- В изолированной ignored SQLite создана синтетическая order/payment-пара.
+  Payment локально прошёл существующую verified reconciliation: order и payment
+  имели статус `paid`, совпадающие order ID, сумму `1000` евроцентов, EUR,
+  checkout reference, `paidAt` и одну synthetic `SUCCESSFUL` transaction.
+- Текущий verified-prepayment builder сформировал один pickup product `1` с
+  количеством `1`, ценой `1000` и `payment: { type: 1, sum: 1000, currency:
+  EUR }`, а также только синтетические contact/comment fields. Все guards были
+  проверены до разрешения transport.
+- Через existing sandbox-only one-shot submitter выполнен ровно один
+  `POST incomingOrders.createIncomingOrder`: retry и второго POST не было.
+  Poster вернул строгий HTTP `200`, JSON envelope содержал безопасный
+  `incoming_order_id: 3`. Полный URL, token и response body не выводились и не
+  сохранялись. Локальный durable handoff атомарно завершился состояниями
+  `submitted_to_poster` и `submitted`.
+- Единственный последующий read-only `incomingOrders.getOwnIncomingOrders`
+  однозначно нашёл order `3` и подтвердил initial status `0`, spot `1`, ровно
+  одну позицию product `1`, цену `1000`, synthetic phone после безопасной
+  нормализации и correlation comment. Лишних позиций не обнаружено.
+- Строгий inspector вернул `unknown`: safe decoder не подтвердил quantity в
+  своём строгом integer-формате, а возвращённые first/last name не совпали с
+  отправленными synthetic значениями. Raw response не сохранялся, поэтому это
+  не объявляется доказанным изменением количества или установленной причиной
+  нормализации имён.
+- В read-only результате не обнаружены распознаваемые payment type,
+  prepayment sum или payment currency. HTTP `200` подтверждает принятие request
+  envelope с этими полями, но не доказывает, что Poster сохранил или применил
+  предоплату. Kitchen visibility этим API не подтверждена.
+- После подтверждённого ответа временные локальные SQLite и runner удалены.
+  Production, SumUp, ChoiceQR и обычный `src/server.ts` не использовались.
+  `.env`, credentials, response body, synthetic contact values и card data не
+  выводились, не сохранялись в журнале и не добавлялись в Git.
+- Проверки: `npm test` — 174 теста в 20 файлах прошли;
+  `npm run typecheck`; `npm run build`; `git diff --check` — успешно.
+- Result: partial — один prepaid sandbox request создал order `3`, но
+  prepayment, quantity representation, exact name mapping и kitchen visibility
+  остаются неподтверждёнными.
+- Commit: текущий коммит, содержащий эту запись.
+
 ### Verified prepayment для локального Poster handoff
 
 - Стандартный Poster payload builder теперь принимает связанный
