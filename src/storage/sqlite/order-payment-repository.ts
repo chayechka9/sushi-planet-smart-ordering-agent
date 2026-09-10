@@ -10,6 +10,7 @@ import {
 } from "../../domain/payment.js";
 import {
   calculateOrderTotals,
+  markSubmittedToPoster,
   type CartItem,
   type Fulfilment,
   type Order,
@@ -40,6 +41,51 @@ interface PaymentRow {
   paid_at: unknown;
 }
 
+interface PosterHandoffRow {
+  order_id: unknown;
+  correlation_id: unknown;
+  payload_fingerprint: unknown;
+  status: unknown;
+  poster_order_id: unknown;
+  created_at: unknown;
+  updated_at: unknown;
+  submitted_at: unknown;
+}
+
+export type PosterHandoffStatus =
+  | "submitting"
+  | "submitted"
+  | "uncertain";
+
+export interface PosterHandoffIdentity {
+  correlationId: string;
+  payloadFingerprint: string;
+}
+
+export interface PosterHandoffRecord extends PosterHandoffIdentity {
+  orderId: string;
+  status: PosterHandoffStatus;
+  posterOrderId: string | null;
+  createdAt: string;
+  updatedAt: string;
+  submittedAt: string | null;
+}
+
+export type PosterHandoffClaimOutcome =
+  | "claimed"
+  | "duplicate"
+  | "in_progress"
+  | "uncertain";
+
+export interface PosterHandoffClaimResult {
+  outcome: PosterHandoffClaimOutcome;
+}
+
+export interface PosterHandoffRecoveryCompletionResult {
+  outcome: "confirmed" | "duplicate";
+  order: Order;
+}
+
 export class SqliteOrderPaymentRepositoryError extends Error {
   constructor(message: string) {
     super(message);
@@ -52,8 +98,8 @@ export interface SqliteOrderPaymentRepositoryOptions {
 }
 
 /**
- * File-backed local storage for an order and its single SumUp payment.
- * Successful reconciliation updates both records in one SQLite transaction.
+ * File-backed local storage for an order, its SumUp payment and Poster handoff.
+ * Successful transitions update their related records atomically.
  */
 export class SqliteOrderPaymentRepository {
   private readonly database: DatabaseSync;
@@ -201,6 +247,252 @@ export class SqliteOrderPaymentRepository {
     return row === undefined ? undefined : readPayment(row);
   }
 
+  findPosterHandoffByOrderId(
+    orderId: string,
+  ): PosterHandoffRecord | undefined {
+    const row = this.database
+      .prepare(
+         `SELECT
+           order_id,
+           correlation_id,
+           payload_fingerprint,
+           status,
+           poster_order_id,
+           created_at,
+           updated_at,
+           submitted_at
+         FROM poster_handoffs
+         WHERE order_id = ?`,
+      )
+      .get(orderId) as unknown as PosterHandoffRow | undefined;
+
+    return row === undefined ? undefined : readPosterHandoff(row);
+  }
+
+  claimPosterHandoff(
+    orderId: string,
+    identity: PosterHandoffIdentity,
+    now: Date = new Date(),
+  ): PosterHandoffClaimResult {
+    this.assertWritable();
+    const normalizedIdentity = normalizePosterHandoffIdentity(identity);
+    return this.runInTransaction(() => {
+      const existing = this.findPosterHandoffByOrderId(orderId);
+      if (existing !== undefined) {
+        assertMatchingPosterHandoffIdentity(existing, normalizedIdentity);
+        return { outcome: mapPosterHandoffClaimOutcome(existing.status) };
+      }
+
+      const order = this.findOrderById(orderId);
+      const payment = this.findByOrderId(orderId);
+      assertPaidPosterHandoffPair(order, payment);
+
+      const timestamp = now.toISOString();
+      this.database
+        .prepare(
+          `INSERT INTO poster_handoffs (
+             order_id,
+             correlation_id,
+             payload_fingerprint,
+             status,
+             poster_order_id,
+             created_at,
+             updated_at,
+             submitted_at
+           ) VALUES (?, ?, ?, 'submitting', NULL, ?, ?, NULL)`,
+        )
+        .run(
+          orderId,
+          normalizedIdentity.correlationId,
+          normalizedIdentity.payloadFingerprint,
+          timestamp,
+          timestamp,
+        );
+
+      return { outcome: "claimed" };
+    });
+  }
+
+  markPosterHandoffUncertain(
+    orderId: string,
+    identity: PosterHandoffIdentity,
+    now: Date = new Date(),
+  ): void {
+    this.assertWritable();
+    const normalizedIdentity = normalizePosterHandoffIdentity(identity);
+    this.runInTransaction(() => {
+      const update = this.database
+        .prepare(
+          `UPDATE poster_handoffs
+           SET status = 'uncertain', updated_at = ?
+           WHERE
+             order_id = ?
+             AND correlation_id = ?
+             AND payload_fingerprint = ?
+             AND status = 'submitting'`,
+        )
+        .run(
+          now.toISOString(),
+          orderId,
+          normalizedIdentity.correlationId,
+          normalizedIdentity.payloadFingerprint,
+        );
+
+      if (update.changes !== 1) {
+        throw new SqliteOrderPaymentRepositoryError(
+          "Poster handoff is not awaiting a submission result",
+        );
+      }
+    });
+  }
+
+  completePosterHandoff(
+    orderId: string,
+    identity: PosterHandoffIdentity,
+    posterOrderId: string,
+    now: Date = new Date(),
+  ): Order {
+    this.assertWritable();
+    const normalizedIdentity = normalizePosterHandoffIdentity(identity);
+    const normalizedPosterOrderId = posterOrderId.trim();
+    if (normalizedPosterOrderId.length === 0) {
+      throw new SqliteOrderPaymentRepositoryError(
+        "Poster order ID must not be empty",
+      );
+    }
+
+    return this.runInTransaction(() => {
+      return this.finishPosterHandoff(
+        orderId,
+        normalizedIdentity,
+        normalizedPosterOrderId,
+        ["submitting"],
+        now,
+      );
+    });
+  }
+
+  confirmRecoveredPosterHandoff(
+    orderId: string,
+    identity: PosterHandoffIdentity,
+    posterOrderId: string,
+    now: Date = new Date(),
+  ): PosterHandoffRecoveryCompletionResult {
+    this.assertWritable();
+    const normalizedIdentity = normalizePosterHandoffIdentity(identity);
+    const normalizedPosterOrderId = posterOrderId.trim();
+    if (normalizedPosterOrderId.length === 0) {
+      throw new SqliteOrderPaymentRepositoryError(
+        "Poster order ID must not be empty",
+      );
+    }
+
+    return this.runInTransaction(() => {
+      const handoff = this.findPosterHandoffByOrderId(orderId);
+      if (handoff === undefined) {
+        throw new SqliteOrderPaymentRepositoryError(
+          "Poster handoff does not exist",
+        );
+      }
+      assertMatchingPosterHandoffIdentity(handoff, normalizedIdentity);
+
+      if (handoff.status === "submitted") {
+        const order = this.findOrderById(orderId);
+        if (
+          order?.status !== "submitted_to_poster" ||
+          handoff.posterOrderId !== normalizedPosterOrderId
+        ) {
+          throw new SqliteOrderPaymentRepositoryError(
+            "Submitted Poster handoff does not match local state",
+          );
+        }
+        return { outcome: "duplicate", order };
+      }
+
+      return {
+        outcome: "confirmed",
+        order: this.finishPosterHandoff(
+          orderId,
+          normalizedIdentity,
+          normalizedPosterOrderId,
+          ["submitting", "uncertain"],
+          now,
+        ),
+      };
+    });
+  }
+
+  private finishPosterHandoff(
+    orderId: string,
+    identity: PosterHandoffIdentity,
+    posterOrderId: string,
+    allowedStatuses: readonly PosterHandoffStatus[],
+    now: Date,
+  ): Order {
+    const handoff = this.findPosterHandoffByOrderId(orderId);
+    if (handoff === undefined || !allowedStatuses.includes(handoff.status)) {
+      throw new SqliteOrderPaymentRepositoryError(
+        "Poster handoff is not awaiting completion",
+      );
+    }
+    assertMatchingPosterHandoffIdentity(handoff, identity);
+
+    const order = this.findOrderById(orderId);
+    const payment = this.findByOrderId(orderId);
+    assertPaidPosterHandoffPair(order, payment);
+
+    const submittedOrder = markSubmittedToPoster(order, now);
+    const orderUpdate = this.database
+      .prepare(
+        `UPDATE orders
+         SET status = ?, payload_json = ?, updated_at = ?
+         WHERE id = ? AND status = 'paid'`,
+      )
+      .run(
+        submittedOrder.status,
+        JSON.stringify(submittedOrder),
+        submittedOrder.updatedAt,
+        orderId,
+      );
+    if (orderUpdate.changes !== 1) {
+      throw new SqliteOrderPaymentRepositoryError(
+        "Order status changed during Poster handoff",
+      );
+    }
+
+    const timestamp = now.toISOString();
+    const handoffUpdate = this.database
+      .prepare(
+        `UPDATE poster_handoffs
+         SET
+           status = 'submitted',
+           poster_order_id = ?,
+           updated_at = ?,
+           submitted_at = ?
+         WHERE
+           order_id = ?
+           AND correlation_id = ?
+           AND payload_fingerprint = ?
+           AND status = ?`,
+      )
+      .run(
+        posterOrderId,
+        timestamp,
+        timestamp,
+        orderId,
+        identity.correlationId,
+        identity.payloadFingerprint,
+        handoff.status,
+      );
+    if (handoffUpdate.changes !== 1) {
+      throw new SqliteOrderPaymentRepositoryError(
+        "Poster handoff state changed during completion",
+      );
+    }
+
+    return submittedOrder;
+  }
+
   reconcileVerifiedSumUpCheckout(
     checkout: VerifiedSumUpCheckout,
     now: Date = new Date(),
@@ -325,7 +617,7 @@ export class SqliteOrderPaymentRepository {
 
       if (isSqliteConstraintError(error)) {
         throw new SqliteOrderPaymentRepositoryError(
-          "Stored order/payment identity or state must be unique and valid",
+          "Stored order, payment or Poster identity must be unique and valid",
         );
       }
 
@@ -465,6 +757,98 @@ function readPayment(row: PaymentRow): PaymentRecord {
   };
 }
 
+function readPosterHandoff(row: PosterHandoffRow): PosterHandoffRecord {
+  return {
+    orderId: requireString(row.order_id, "Stored Poster handoff order ID"),
+    correlationId: requireString(
+      row.correlation_id,
+      "Stored Poster handoff correlation ID",
+    ),
+    payloadFingerprint: requirePosterPayloadFingerprint(
+      row.payload_fingerprint,
+    ),
+    status: requirePosterHandoffStatus(row.status),
+    posterOrderId: requireNullableString(
+      row.poster_order_id,
+      "Stored Poster order ID",
+    ),
+    createdAt: requireString(
+      row.created_at,
+      "Stored Poster handoff created_at",
+    ),
+    updatedAt: requireString(
+      row.updated_at,
+      "Stored Poster handoff updated_at",
+    ),
+    submittedAt: requireNullableString(
+      row.submitted_at,
+      "Stored Poster handoff submitted_at",
+    ),
+  };
+}
+
+function normalizePosterHandoffIdentity(
+  identity: PosterHandoffIdentity,
+): PosterHandoffIdentity {
+  const correlationId = requireString(
+    identity.correlationId,
+    "Poster handoff correlation ID",
+  ).trim();
+  const payloadFingerprint = requirePosterPayloadFingerprint(
+    identity.payloadFingerprint,
+  );
+  return { correlationId, payloadFingerprint };
+}
+
+function assertMatchingPosterHandoffIdentity(
+  handoff: PosterHandoffRecord,
+  identity: PosterHandoffIdentity,
+): void {
+  if (
+    handoff.correlationId !== identity.correlationId ||
+    handoff.payloadFingerprint !== identity.payloadFingerprint
+  ) {
+    throw new SqliteOrderPaymentRepositoryError(
+      "Poster handoff identity does not match stored state",
+    );
+  }
+}
+
+function assertPaidPosterHandoffPair(
+  order: Order | undefined,
+  payment: PaymentRecord | undefined,
+): asserts order is Order {
+  if (order === undefined || payment === undefined) {
+    throw new SqliteOrderPaymentRepositoryError(
+      "Poster handoff requires a stored order and payment",
+    );
+  }
+  if (
+    order.status !== "paid" ||
+    payment.orderId !== order.id ||
+    payment.status !== "paid" ||
+    payment.successfulTransactionId === null ||
+    payment.paidAt === null
+  ) {
+    throw new SqliteOrderPaymentRepositoryError(
+      "Poster handoff requires a locally confirmed paid order",
+    );
+  }
+}
+
+function mapPosterHandoffClaimOutcome(
+  status: PosterHandoffStatus,
+): Exclude<PosterHandoffClaimOutcome, "claimed"> {
+  switch (status) {
+    case "submitting":
+      return "in_progress";
+    case "submitted":
+      return "duplicate";
+    case "uncertain":
+      return "uncertain";
+  }
+}
+
 function requireCartItems(value: unknown): CartItem[] {
   if (!Array.isArray(value)) {
     throw new SqliteOrderPaymentRepositoryError(
@@ -556,6 +940,28 @@ function requirePaymentStatus(value: unknown): PaymentStatus {
   throw new SqliteOrderPaymentRepositoryError(
     "Stored payment status is invalid",
   );
+}
+
+function requirePosterHandoffStatus(value: unknown): PosterHandoffStatus {
+  if (
+    value === "submitting" ||
+    value === "submitted" ||
+    value === "uncertain"
+  ) {
+    return value;
+  }
+  throw new SqliteOrderPaymentRepositoryError(
+    "Stored Poster handoff status is invalid",
+  );
+}
+
+function requirePosterPayloadFingerprint(value: unknown): string {
+  if (typeof value !== "string" || !/^[0-9a-f]{64}$/.test(value)) {
+    throw new SqliteOrderPaymentRepositoryError(
+      "Stored Poster payload fingerprint is invalid",
+    );
+  }
+  return value;
 }
 
 function requireString(value: unknown, label: string): string {

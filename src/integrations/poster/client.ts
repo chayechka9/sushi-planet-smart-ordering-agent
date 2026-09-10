@@ -81,6 +81,23 @@ export class PosterClient {
     return response.map((item, index) => parseMenuItem(item, index));
   }
 
+  /**
+   * Returns unparsed incoming-order rows for a separately controlled read-only
+   * inspection. Raw field mapping remains intentionally outside this client
+   * until a fresh sandbox response confirms the contract.
+   */
+  async getOwnIncomingOrders(): Promise<readonly unknown[]> {
+    const response = await this.request(
+      "incomingOrders.getOwnIncomingOrders",
+    );
+    if (!Array.isArray(response)) {
+      throw new PosterApiError(
+        "Poster incoming orders response must be an array",
+      );
+    }
+    return response;
+  }
+
   private async request(method: string): Promise<unknown> {
     const url = new URL(method, POSTER_API_BASE_URL);
     url.searchParams.set("token", this.token);

@@ -3,6 +3,137 @@
 Здесь хранится подробная техническая история завершённых изменений. README
 описывает проект и его границы, а PLAN — крупные этапы и их высокий уровень.
 
+## 10 сентября 2026
+
+### Одна разрешённая prepaid-попытка Poster sandbox: uncertain
+
+- Непосредственный read-only preflight подтвердил отдельный тестовый аккаунт
+  `sushi-planet-bot`, валюту EUR, часовой пояс `Europe/Dublin`, заведение `1`,
+  видимый товар `1` и его текущую цену `1000` евроцентов.
+- Текущий payload builder сформировал заказ на самовывоз с заведением `1`,
+  синтетическими контактными полями, одним товаром `1` в количестве `1`, ценой
+  `1000` евроцентов, `payment.type: 1`, предоплатой `1000` EUR и безопасным
+  correlation reference в существующем поле `comment`.
+- Через sandbox-only one-shot submitter выполнен ровно один
+  `POST incomingOrders.createIncomingOrder`. Poster вернул HTTP `422`, поэтому
+  результат строго классифицирован как `uncertain`; response body не выводился,
+  автоматический или ручной retry не выполнялся.
+- Требование успеха HTTP `200` с `response.incoming_order_id` не выполнено.
+  Read-only inspector после POST не запускался, Poster order ID и поля
+  созданного заказа не подтверждены. Видимость заказа на кухне также не
+  подтверждена. Второй POST запрещён до отдельного решения о recovery этой
+  попытки.
+- Последующий офлайн-аудит подтвердил, что от ответа попытки фактически
+  сохранён только безопасный HTTP status `422`; `Content-Type` ответа и body не
+  сохранялись, поэтому их восстановить локально нельзя. Endpoint, request
+  `Content-Type: application/json` и форма JSON подтверждены кодом transport и
+  payload builder: обязательные `spot_id`, синтетический `phone` и один
+  `products` присутствовали, product ID/count/price совпадали со свежим меню.
+- Документированный контракт допускает использованные optional-поля имени,
+  комментария, явной цены и `payment`. Однако исторический успешный POST
+  передавал только `spot_id`, другой локальный тестовый phone и product ID/count,
+  а текущая и первая неуспешная попытки содержали более широкий набор полей.
+  Это различие не доказывает, какое поле или сочетание вызвало `422`; отдельно
+  не подтверждены валидация текущего синтетического phone и принятие именно
+  этой prepaid-комбинации аккаунтом.
+- Исправлены только подтверждённые локальные validation/diagnostics gaps:
+  sandbox submitter теперь считает успехом строго HTTP `200`, а `uncertain`
+  возвращает безопасные stage, HTTP status и очищенный response Content-Type
+  без body, credential, URL или contact data. Mock-тест фиксирует HTTP `422`
+  diagnostics без retry и отклонение даже корректного envelope при non-`200`.
+- Production, SumUp и ChoiceQR не использовались; обычный `src/server.ts` не
+  менялся и не запускался. Token, полный URL с query string, `.env`, response
+  body и синтетические контактные значения не выводились и не сохранялись в
+  журнале.
+- Проверки: `npm test` — 164 теста в 20 файлах прошли;
+  `npm run typecheck` — успешно; `npm run build` — успешно;
+  `git diff --check` — успешно.
+- Result: partial/uncertain — единственная разрешённая POST-попытка завершилась
+  HTTP `422`; безопасное создание и содержимое заказа не подтверждены.
+- Commit: текущий коммит, содержащий эту запись.
+
+### Локальные компоненты следующего Poster sandbox-теста
+
+- Добавлен sandbox-only `InjectedPosterSandboxSubmitter` с отдельным
+  `PosterSandboxPostTransport`. Без injected transport submitter отключён;
+  token-aware `PosterSandboxHttpPostTransport` также по умолчанию запрещает I/O
+  и требует явного `enabled: true`. Submitter допускает одну POST-попытку на
+  экземпляр, использует только подтверждённый
+  `incomingOrders.createIncomingOrder`, не выполняет retry и возвращает
+  `uncertain` при network/HTTP/неоднозначном ответе. Для handoff это состояние
+  преобразуется в безопасную ошибку, которую существующий сервис сохраняет как
+  durable `uncertain`, не меняя order на `submitted_to_poster`. Кэшированный
+  success повторно доступен только для того же correlation ID и fingerprint;
+  другая identity получает `uncertain` без второго POST.
+- Stable correlation теперь зависит только от local order ID и должен быть
+  передан через уже согласованное поле `comment`; fingerprint по-прежнему
+  вычисляется от точного payload. Это даёт безопасный reference для будущего
+  read-only поиска без добавления неподтверждённых Poster-полей.
+- Read-only `PosterClient` получил метод
+  `incomingOrders.getOwnIncomingOrders`, который возвращает opaque rows без
+  предположений об их полях. `PosterClientSandboxOrderLookup` использует только
+  этот GET и injected decoder. `PosterSandboxInspector` подтверждает результат
+  лишь при полном совпадении local identity, Poster order ID, venue, currency,
+  amount, единственной позиции, quantity, price, payment type, prepayment и
+  синтетических контактных/reference-полей; mismatch возвращает `unknown`.
+- Реальный decoder raw Poster incoming-order rows не добавлен: актуальные имена
+  и вложенность нужных полей ещё не подтверждены свежим sandbox-ответом. До
+  такого read-only подтверждения inspector остаётся mock/injected на границе
+  нормализации. Обычный `src/server.ts` не менялся и не подключает Poster.
+- Добавлены полностью локальные mock-тесты one-shot success, default-disabled
+  HTTP, network/HTTP/ambiguous `uncertain` без retry, безопасных diagnostics,
+  строгой проверки полей, extra-product/mismatch, read-only client bridge и
+  отсутствия Poster route в обычном app bootstrap.
+- `.env` не читался; внешние запросы, checkout, webhook server, tunnel, Poster
+  order, commit и push не выполнялись. Использованы только синтетические данные.
+- Проверки: `npm test` — 163 теста в 20 файлах прошли;
+  `npm run typecheck` — успешно; `npm run build` — успешно;
+  `git diff --check` — успешно.
+- Result: partial — локальные one-shot и read-only границы готовы; перед одним
+  разрешённым Poster sandbox POST требуется отдельное подтверждение и свежая
+  read-only фиксация raw incoming-order schema для injected decoder.
+- Commit: текущий коммит, содержащий эту запись.
+
+### Локальный идемпотентный handoff оплаченного заказа в Poster
+
+- Добавлен transport-neutral интерфейс `PosterOrderSubmitter` и локальный
+  `SubmitPaidOrderToPosterService`. Сервис принимает только сохранённую пару
+  order/payment со статусом `paid`, подтверждённой успешной SumUp transaction и
+  `paidAt`, затем использует существующий Poster payload builder. Реального
+  Poster HTTP submitter и подключения к обычному `src/server.ts` нет.
+- SQLite migration v2 добавляет один durable handoff marker на order ID со
+  статусами `submitting`, `submitted` и `uncertain`, стабильным local
+  correlation ID и SHA-256 fingerprint точного payload. Claim записывается в
+  `BEGIN IMMEDIATE` до вызова injected transport; успешное завершение атомарно
+  переводит order в `submitted_to_poster` и marker в `submitted`. Повтор
+  завершённого handoff возвращает `duplicate` без вызова transport.
+- Неоднозначная ошибка fake transport оставляет order в `paid`, переводит marker
+  в `uncertain` и блокирует автоматический повтор. Сохранённый `submitting` после
+  перезапуска возвращает `in_progress` без повторной отправки; для обоих случаев
+  используется отдельный recovery service с injected read-only inspector.
+  `unknown` сохраняет `paid`/`uncertain`; только `confirmed` с точным совпадением
+  order ID, correlation ID и payload fingerprint может атомарно завершить
+  handoff. Inspector и submitter представлены только fake-реализациями.
+- Добавлены локальные тесты с injected fake transport и запрещающим `fetch` spy.
+  Они покрывают отказ для `awaiting_payment`, единственную отправку `paid`
+  заказа, точный согласованный payload, duplicate, безопасную ошибку transport,
+  completed/in-progress/uncertain restart, два конкурентных вызова через одну
+  connection, конкуренцию через две connections, неизменность timestamps и
+  transaction identity при duplicate, строгую recovery confirmation, mismatch,
+  безопасную ошибку inspector, v1→v2 migration и запрет новых SQLite-мутаций в
+  read-only mode.
+- `README.md`, `PLAN.md`, `src/server.ts` и существующий read-only Poster client
+  не менялись. `.env` не читался; секреты, response body и реальные
+  customer/card data не использовались. Запросы в Poster, SumUp и ChoiceQR,
+  checkout, webhook server, tunnel и production server не запускались.
+- Проверки: `npm test` — 136 тестов в 19 файлах прошли;
+  `npm run typecheck` — успешно; `npm run build` — успешно;
+  `git diff --check` — успешно. Scope/security review выполнен отдельно.
+- Result: complete — локальная at-most-once основа и controlled recovery готовы;
+  реальные Poster sandbox transport/inspector и один отдельно разрешённый
+  внешний тест остаются следующими этапами.
+- Commit: текущий коммит, содержащий эту запись.
+
 ## 9 сентября 2026
 
 ### Синхронизация документации с кодом и историческими проверками

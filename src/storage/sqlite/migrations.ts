@@ -63,6 +63,45 @@ const MIGRATIONS: readonly SqliteMigration[] = [
       CREATE INDEX payments_status_idx ON payments(status);
     `,
   },
+  {
+    version: 2,
+    name: "create_poster_handoff_storage",
+    sql: `
+      CREATE TABLE poster_handoffs (
+        order_id TEXT PRIMARY KEY,
+        correlation_id TEXT NOT NULL UNIQUE
+          CHECK (length(trim(correlation_id)) > 0),
+        payload_fingerprint TEXT NOT NULL CHECK (
+          length(payload_fingerprint) = 64
+          AND payload_fingerprint NOT GLOB '*[^0-9a-f]*'
+        ),
+        status TEXT NOT NULL CHECK (
+          status IN ('submitting', 'submitted', 'uncertain')
+        ),
+        poster_order_id TEXT UNIQUE,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        submitted_at TEXT,
+        FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE RESTRICT,
+        CHECK (
+          (
+            status = 'submitted'
+            AND poster_order_id IS NOT NULL
+            AND length(trim(poster_order_id)) > 0
+            AND submitted_at IS NOT NULL
+          )
+          OR
+          (
+            status != 'submitted'
+            AND poster_order_id IS NULL
+            AND submitted_at IS NULL
+          )
+        )
+      ) STRICT;
+
+      CREATE INDEX poster_handoffs_status_idx ON poster_handoffs(status);
+    `,
+  },
 ];
 
 export class SqliteMigrationError extends Error {

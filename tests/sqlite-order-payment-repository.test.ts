@@ -1,6 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -141,6 +142,30 @@ describe("SQLite order/payment repository", () => {
         paidAt,
       ),
     ).toThrow("SQLite repository is read-only");
+    const identity = {
+      correlationId: `poster-handoff:${pair.order.id}:aaaaaaaaaaaaaaaa`,
+      payloadFingerprint: "a".repeat(64),
+    };
+    expect(() => repository.claimPosterHandoff(pair.order.id, identity)).toThrow(
+      "SQLite repository is read-only",
+    );
+    expect(() =>
+      repository.markPosterHandoffUncertain(pair.order.id, identity),
+    ).toThrow("SQLite repository is read-only");
+    expect(() =>
+      repository.completePosterHandoff(
+        pair.order.id,
+        identity,
+        "poster-order-test",
+      ),
+    ).toThrow("SQLite repository is read-only");
+    expect(() =>
+      repository.confirmRecoveredPosterHandoff(
+        pair.order.id,
+        identity,
+        "poster-order-test",
+      ),
+    ).toThrow("SQLite repository is read-only");
     expect(repository.findOrderById(pair.order.id)).toEqual(pair.order);
     expect(repository.findByCheckoutId(pair.payment.checkoutId)).toEqual(
       pair.payment,
@@ -163,6 +188,38 @@ describe("SQLite order/payment repository", () => {
     expect(reopenedRepository.findByOrderId(pair.order.id)).toEqual(
       pair.payment,
     );
+  });
+
+  it("upgrades an existing v1 database before creating a Poster handoff", () => {
+    const databasePath = createDatabasePath();
+    const pair = createPair("v1-upgrade");
+    const initialRepository = openRepository(databasePath);
+    initialRepository.createOrderWithPayment(pair.order, pair.payment);
+    initialRepository.close();
+
+    const legacyDatabase = new DatabaseSync(databasePath);
+    legacyDatabase.exec(`
+      DROP TABLE poster_handoffs;
+      DELETE FROM schema_migrations WHERE version = 2;
+    `);
+    legacyDatabase.close();
+
+    const upgradedRepository = openRepository(databasePath);
+    expect(upgradedRepository.findOrderById(pair.order.id)).toEqual(pair.order);
+    upgradedRepository.reconcileVerifiedSumUpCheckout(
+      createVerifiedCheckout(pair.payment, "transaction-v1-upgrade"),
+      paidAt,
+    );
+    const identity = {
+      correlationId: `poster-handoff:${pair.order.id}:aaaaaaaaaaaaaaaa`,
+      payloadFingerprint: "a".repeat(64),
+    };
+    expect(
+      upgradedRepository.claimPosterHandoff(pair.order.id, identity, paidAt),
+    ).toEqual({ outcome: "claimed" });
+    expect(
+      upgradedRepository.findPosterHandoffByOrderId(pair.order.id),
+    ).toMatchObject({ status: "submitting", ...identity });
   });
 
   it("atomically marks order/payment paid and deduplicates after restart", () => {

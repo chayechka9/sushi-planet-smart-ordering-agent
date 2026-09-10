@@ -68,6 +68,27 @@ describe("PosterClient", () => {
     });
   });
 
+  it("reads incoming-order rows without inventing an unconfirmed field mapping", async () => {
+    let requestedUrl: string | URL | Request | undefined;
+    const rows = [{ unconfirmed_raw_field: "kept opaque" }];
+    const client = new PosterClient(
+      "local-test-token",
+      vi.fn(async (input: string | URL | Request) => {
+        requestedUrl = input;
+        return Response.json({ response: rows });
+      }),
+    );
+
+    await expect(client.getOwnIncomingOrders()).resolves.toEqual(rows);
+    expect(requestedUrl).toBeInstanceOf(URL);
+    if (!(requestedUrl instanceof URL)) {
+      throw new Error("Expected Poster client to request a URL");
+    }
+    expect(requestedUrl.pathname).toBe(
+      "/api/incomingOrders.getOwnIncomingOrders",
+    );
+  });
+
   it("returns a sanitized Poster error", async () => {
     const token = "secret-token-that-must-not-appear";
     const client = new PosterClient(
