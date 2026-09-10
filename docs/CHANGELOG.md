@@ -5,6 +5,36 @@
 
 ## 10 сентября 2026
 
+### Успешная минимальная Poster sandbox-попытка
+
+- После отдельного явного разрешения через committed sandbox-only one-shot
+  boundary выполнен ровно один `POST incomingOrders.createIncomingOrder` в
+  подтверждённый аккаунт `sushi-planet-bot`. Body содержал только spot `1`,
+  локальный синтетический phone и один product `1` с `count: 1`; `price`,
+  `payment`, `first_name`, `last_name` и `comment` не отправлялись.
+- Первая локальная команда запуска завершилась на TypeScript transform до
+  выполнения кода и сетевого I/O. Исправленный запуск выполнил единственный
+  POST; retry и второго POST не было.
+- Poster вернул строгий успешный HTTP `200` с безопасным
+  `response.incoming_order_id: 2`. Response body, token, query string и
+  синтетический phone не выводились и не сохранялись.
+- Последующий read-only `incomingOrders.getOwnIncomingOrders` однозначно нашёл
+  заказ `2` и подтвердил initial status `0`, spot `1`, ровно одну позицию
+  product `1`, количество `1`, применённую цену `1000` евроцентов и совпадение
+  синтетического phone после безопасной нормализации. Лишних товарных позиций
+  не обнаружено.
+- Предоплата в минимальном body отсутствовала и не подтверждена. Наличие заказа
+  в incoming-orders API подтверждено; видимость в кухонном интерфейсе отдельно
+  не проверялась и остаётся неподтверждённой.
+- Production, SumUp, ChoiceQR и обычный `src/server.ts` не использовались.
+- Проверки: `npm test` — 169 тестов в 20 файлах прошли;
+  `npm run typecheck` — успешно; `npm run build` — успешно;
+  `git diff --check` — успешно.
+- Result: partial — минимальный sandbox POST и read-only API inspection
+  подтверждены; kitchen visibility, prepaid payload и production transport
+  остаются отдельными этапами.
+- Commit: текущий коммит, содержащий эту запись.
+
 ### Подготовка минимальной Poster sandbox-попытки без POST
 
 - Read-only preflight повторно подтвердил отдельный тестовый аккаунт
