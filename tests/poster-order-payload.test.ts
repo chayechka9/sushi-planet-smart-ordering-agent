@@ -1,4 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+import {
+  createSumUpPayment,
+  reconcileVerifiedSumUpCheckout,
+  type PaymentRecord,
+} from "../src/domain/payment.js";
 
 import {
   addItem,
@@ -29,25 +35,75 @@ const testCustomer = {
   phone: "+353000000000",
 } as const;
 
-function createPaidPickupOrder(): Order {
-  let order = createOrder({ createId: () => "ord_poster_test_001" });
+const createdAt = new Date("2026-09-10T14:00:00.000Z");
+const paidAt = new Date("2026-09-10T14:01:00.000Z");
+
+function createAwaitingPickupOrder(): Order {
+  let order = createOrder({
+    createId: () => "ord_poster_test_001",
+    now: () => createdAt,
+  });
   order = addItem(order, testMenuProduct);
   order = setPickup(order);
-  order = markAwaitingPayment(order);
-  return markPaid(order);
+  return markAwaitingPayment(order);
+}
+
+function createPaidPickupPair(): { order: Order; payment: PaymentRecord } {
+  const awaitingOrder = createAwaitingPickupOrder();
+  const pendingPayment = createSumUpPayment({
+    order: awaitingOrder,
+    checkoutId: "checkout-poster-test-1",
+    checkoutReference: "sumup-ord_poster_test_001-1",
+    merchantCode: "MTEST123",
+    amountCents: 1_000,
+    currency: "EUR",
+    now: createdAt,
+  });
+  const result = reconcileVerifiedSumUpCheckout(
+    awaitingOrder,
+    pendingPayment,
+    {
+      checkoutId: pendingPayment.checkoutId,
+      checkoutReference: pendingPayment.checkoutReference,
+      merchantCode: pendingPayment.merchantCode,
+      amountCents: pendingPayment.amountCents,
+      currency: "EUR",
+      status: "PAID",
+      transactions: [
+        {
+          id: "transaction-poster-test-1",
+          status: "SUCCESSFUL",
+          amountCents: pendingPayment.amountCents,
+          currency: "EUR",
+        },
+      ],
+    },
+    paidAt,
+  );
+  return { order: result.order, payment: result.payment };
+}
+
+function createPaidPickupOrder(): Order {
+  return createPaidPickupPair().order;
 }
 
 function createInput(
   overrides: Partial<BuildPosterIncomingOrderPayloadInput> = {},
 ): BuildPosterIncomingOrderPayloadInput {
+  const pair = createPaidPickupPair();
   return {
-    order: createPaidPickupOrder(),
+    order: pair.order,
+    payment: pair.payment,
     spotId: "1",
     customer: testCustomer,
     comment: "TEST ONLY - ord_poster_test_001 - pickup",
     ...overrides,
   };
 }
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 describe("buildPosterIncomingOrderPayload", () => {
   it("builds the documented one-product prepaid pickup payload", () => {
@@ -62,12 +118,115 @@ describe("buildPosterIncomingOrderPayload", () => {
     });
   });
 
+  it("derives the exact EUR prepayment from the verified linked payment", () => {
+    const input = createInput();
+    const payload = buildPosterIncomingOrderPayload(input);
+
+    expect(input.payment).toMatchObject({
+      status: "paid",
+      amountCents: 1_000,
+      currency: "EUR",
+      successfulTransactionId: "transaction-poster-test-1",
+    });
+    expect(payload.payment).toEqual({
+      type: 1,
+      sum: input.payment?.amountCents,
+      currency: "EUR",
+    });
+  });
+
+  it("rejects a missing or unconfirmed payment", () => {
+    const withoutPayment = createInput();
+    delete withoutPayment.payment;
+    expect(() => buildPosterIncomingOrderPayload(withoutPayment)).toThrow(
+      "requires a verified payment",
+    );
+
+    const awaitingOrder = createAwaitingPickupOrder();
+    const pendingPayment = createSumUpPayment({
+      order: awaitingOrder,
+      checkoutId: "checkout-pending",
+      checkoutReference: "sumup-pending",
+      merchantCode: "MTEST123",
+      amountCents: 1_000,
+      currency: "EUR",
+      now: createdAt,
+    });
+    expect(() =>
+      buildPosterIncomingOrderPayload(
+        createInput({
+          order: markPaid(awaitingOrder),
+          payment: pendingPayment,
+        }),
+      ),
+    ).toThrow("linked to a verified transaction");
+  });
+
   it("rejects an order that is not paid", () => {
     const draft = setPickup(addItem(createOrder(), testMenuProduct));
 
     expect(() =>
       buildPosterIncomingOrderPayload(createInput({ order: draft })),
     ).toThrow("requires a paid order");
+  });
+
+  it("rejects a verified payment with a different amount or currency", () => {
+    const input = createInput();
+    const payment = input.payment;
+    if (payment === undefined) {
+      throw new Error("Expected a verified payment fixture");
+    }
+
+    expect(() =>
+      buildPosterIncomingOrderPayload({
+        ...input,
+        payment: { ...payment, amountCents: 999 },
+      }),
+    ).toThrow("amount does not match");
+
+    expect(() =>
+      buildPosterIncomingOrderPayload({
+        ...input,
+        payment: {
+          ...payment,
+          currency: "USD",
+        } as unknown as PaymentRecord,
+      }),
+    ).toThrow("currency must be EUR");
+  });
+
+  it("rejects a payment whose order, transaction or reference is not linked", () => {
+    const input = createInput();
+    const payment = input.payment;
+    if (payment === undefined) {
+      throw new Error("Expected a verified payment fixture");
+    }
+
+    const unlinkedPayments: PaymentRecord[] = [
+      { ...payment, orderId: "ord_other" },
+      { ...payment, successfulTransactionId: null },
+      { ...payment, successfulTransactionId: " " },
+      { ...payment, checkoutReference: " " },
+    ];
+
+    for (const unlinkedPayment of unlinkedPayments) {
+      expect(() =>
+        buildPosterIncomingOrderPayload({
+          ...input,
+          payment: unlinkedPayment,
+        }),
+      ).toThrow("linked to a verified transaction");
+    }
+  });
+
+  it("does not perform HTTP while building verified prepayment", () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(() => {
+      throw new Error("Network access is forbidden in payload tests");
+    });
+
+    buildPosterIncomingOrderPayload(createInput());
+
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 
   it("rejects delivery until its Poster fields are confirmed", () => {

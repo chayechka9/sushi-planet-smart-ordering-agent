@@ -5,6 +5,35 @@
 
 ## 10 сентября 2026
 
+### Verified prepayment для локального Poster handoff
+
+- Стандартный Poster payload builder теперь принимает связанный
+  `PaymentRecord` и добавляет `payment` только после локальной проверки статусов
+  `order: paid` и `payment: paid`, order ID, непустых checkout reference,
+  successful transaction ID и `paidAt`, точного совпадения итоговой суммы и
+  валюты EUR.
+- Подтверждённая предоплата формируется как `type: 1`, сумма заказа в целых
+  евроцентах и `currency: EUR`. Отсутствующая, pending, относящаяся к другому
+  заказу, несовпадающая по сумме/валюте или не имеющая transaction/reference
+  payment-запись отклоняется до injected submitter.
+- Application service и SQLite claim/completion повторно проверяют связанную
+  paid-пару. Существующие durable fingerprint, claim, duplicate и uncertain
+  правила не менялись; минимальный диагностический payload без prepayment
+  остаётся отдельным sandbox-only профилем.
+- Unit и SQLite integration-тесты используют только синтетические fixtures и
+  injected fake transports. Они покрывают корректный verified prepayment,
+  отсутствие/неподтверждённость payment, несовпадение суммы и валюты,
+  несвязанные order/transaction/reference, отсутствие HTTP и сохранение
+  единственной отправки с duplicate-защитой после перезапуска.
+- Обычный `src/server.ts` не менялся; Poster, SumUp и ChoiceQR requests, новый
+  заказ, checkout, tunnel и production actions не выполнялись. `.env`, token,
+  credentials и реальные customer/card data не читались и не сохранялись.
+- Проверки: `npm test` — 174 теста в 20 файлах прошли;
+  `npm run typecheck`; `npm run build`; `git diff --check` — успешно.
+- Result: complete — локальная verified-payment граница для prepaid Poster
+  payload готова; следующая sandbox-попытка требует отдельного разрешения.
+- Commit: текущий коммит, содержащий эту запись.
+
 ### Успешная минимальная Poster sandbox-попытка
 
 - После отдельного явного разрешения через committed sandbox-only one-shot

@@ -825,13 +825,27 @@ function assertPaidPosterHandoffPair(
   }
   if (
     order.status !== "paid" ||
+    payment.provider !== "sumup" ||
     payment.orderId !== order.id ||
     payment.status !== "paid" ||
     payment.successfulTransactionId === null ||
-    payment.paidAt === null
+    payment.successfulTransactionId.trim().length === 0 ||
+    payment.checkoutReference.trim().length === 0 ||
+    payment.paidAt === null ||
+    payment.paidAt.trim().length === 0
   ) {
     throw new SqliteOrderPaymentRepositoryError(
       "Poster handoff requires a locally confirmed paid order",
+    );
+  }
+
+  const totals = calculateOrderTotals(order);
+  if (
+    payment.amountCents !== totals.totalCents ||
+    payment.currency !== "EUR"
+  ) {
+    throw new SqliteOrderPaymentRepositoryError(
+      "Poster handoff payment does not match the order",
     );
   }
 }

@@ -1,6 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  createSumUpPayment,
+  reconcileVerifiedSumUpCheckout,
+  type PaymentRecord,
+} from "../src/domain/payment.js";
+
+import {
   addItem,
   createOrder,
   markAwaitingPayment,
@@ -37,11 +43,46 @@ function createPaidPickupOrder(): Order {
   return markPaid(order);
 }
 
+function createVerifiedPayment(order: Order): PaymentRecord {
+  const awaitingOrder = markAwaitingPayment(
+    setPickup(addItem(createOrder({ createId: () => order.id }), testMenuProduct)),
+  );
+  const pendingPayment = createSumUpPayment({
+    order: awaitingOrder,
+    checkoutId: "checkout-poster-dry-run",
+    checkoutReference: "sumup-poster-dry-run",
+    merchantCode: "MTEST123",
+    amountCents: 1_000,
+    currency: "EUR",
+  });
+  return reconcileVerifiedSumUpCheckout(
+    awaitingOrder,
+    pendingPayment,
+    {
+      checkoutId: pendingPayment.checkoutId,
+      checkoutReference: pendingPayment.checkoutReference,
+      merchantCode: pendingPayment.merchantCode,
+      amountCents: pendingPayment.amountCents,
+      currency: "EUR",
+      status: "PAID",
+      transactions: [
+        {
+          id: "transaction-poster-dry-run",
+          status: "SUCCESSFUL",
+          amountCents: pendingPayment.amountCents,
+          currency: "EUR",
+        },
+      ],
+    },
+  ).payment;
+}
+
 function createInput(
   order: Order = createPaidPickupOrder(),
 ): BuildPosterIncomingOrderPayloadInput {
   return {
     order,
+    payment: createVerifiedPayment(order),
     spotId: "1",
     customer: testCustomer,
     comment: "TEST ONLY - ord_poster_test_001 - pickup",

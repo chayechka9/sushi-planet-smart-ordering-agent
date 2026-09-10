@@ -2,6 +2,7 @@ import {
   calculateOrderTotals,
   type Order,
 } from "../../domain/order.js";
+import type { PaymentRecord } from "../../domain/payment.js";
 
 export interface PosterOrderCustomer {
   firstName: string;
@@ -44,6 +45,7 @@ export interface PosterMinimalCreateIncomingOrderPayload {
 
 export interface BuildPosterIncomingOrderPayloadInput {
   order: Order;
+  payment?: PaymentRecord;
   spotId: string;
   customer: PosterOrderCustomer;
   comment?: string;
@@ -72,7 +74,7 @@ export class PosterOrderPayloadError extends Error {
 export function buildPosterIncomingOrderPayload(
   input: BuildPosterIncomingOrderPayloadInput,
 ): PosterCreateIncomingOrderPayload {
-  const { order, customer } = input;
+  const { order, customer, payment } = input;
   const { item, spotId, productId } = validateSinglePaidPickupOrder(
     order,
     input.spotId,
@@ -101,6 +103,8 @@ export function buildPosterIncomingOrderPayload(
     );
   }
 
+  assertVerifiedPaymentForOrder(order, payment, totals.totalCents);
+
   return {
     spot_id: spotId,
     first_name: firstName,
@@ -120,6 +124,45 @@ export function buildPosterIncomingOrderPayload(
       currency: totals.currency,
     },
   };
+}
+
+function assertVerifiedPaymentForOrder(
+  order: Order,
+  payment: PaymentRecord | undefined,
+  orderTotalCents: number,
+): asserts payment is PaymentRecord {
+  if (payment === undefined) {
+    throw new PosterOrderPayloadError(
+      "Poster prepayment requires a verified payment",
+    );
+  }
+
+  if (
+    payment.provider !== "sumup" ||
+    payment.orderId !== order.id ||
+    payment.status !== "paid" ||
+    payment.paidAt === null ||
+    payment.paidAt.trim().length === 0 ||
+    payment.successfulTransactionId === null ||
+    payment.successfulTransactionId.trim().length === 0 ||
+    payment.checkoutReference.trim().length === 0
+  ) {
+    throw new PosterOrderPayloadError(
+      "Poster prepayment requires a payment linked to a verified transaction",
+    );
+  }
+
+  if (payment.amountCents !== orderTotalCents) {
+    throw new PosterOrderPayloadError(
+      "Verified payment amount does not match the order total",
+    );
+  }
+
+  if (payment.currency !== "EUR") {
+    throw new PosterOrderPayloadError(
+      "Verified payment currency must be EUR",
+    );
+  }
 }
 
 /**

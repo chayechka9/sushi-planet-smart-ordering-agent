@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 
 import type { PaymentRecord } from "../domain/payment.js";
-import type { Order } from "../domain/order.js";
+import { calculateOrderTotals, type Order } from "../domain/order.js";
 import {
   buildPosterIncomingOrderPayload,
   type PosterOrderCustomer,
@@ -100,10 +100,11 @@ export class SubmitPaidOrderToPosterService {
 
     const order = this.dependencies.repository.findOrderById(input.orderId);
     const payment = this.dependencies.repository.findByOrderId(input.orderId);
-    assertLocallyPaid(order, payment);
+    const paidPair = requireLocallyPaidPair(order, payment);
 
     const payload = buildPosterIncomingOrderPayload({
-      order,
+      order: paidPair.order,
+      payment: paidPair.payment,
       spotId: input.spotId,
       customer: input.customer,
       ...(input.comment === undefined ? {} : { comment: input.comment }),
@@ -166,23 +167,39 @@ export function createPosterHandoffIdentity(
   };
 }
 
-function assertLocallyPaid(
+function requireLocallyPaidPair(
   order: Order | undefined,
   payment: PaymentRecord | undefined,
-): asserts order is Order {
+): { order: Order; payment: PaymentRecord } {
   if (
     order === undefined ||
     payment === undefined ||
     order.status !== "paid" ||
+    payment.provider !== "sumup" ||
     payment.orderId !== order.id ||
     payment.status !== "paid" ||
     payment.successfulTransactionId === null ||
-    payment.paidAt === null
+    payment.successfulTransactionId.trim().length === 0 ||
+    payment.checkoutReference.trim().length === 0 ||
+    payment.paidAt === null ||
+    payment.paidAt.trim().length === 0
   ) {
     throw new PosterHandoffError(
       "Poster handoff requires a locally confirmed paid order",
     );
   }
+
+  const totals = calculateOrderTotals(order);
+  if (
+    payment.amountCents !== totals.totalCents ||
+    payment.currency !== "EUR"
+  ) {
+    throw new PosterHandoffError(
+      "Poster handoff payment does not match the paid order",
+    );
+  }
+
+  return { order, payment };
 }
 
 function mapExistingHandoff(
