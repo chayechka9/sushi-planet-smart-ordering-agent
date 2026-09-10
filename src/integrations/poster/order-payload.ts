@@ -15,6 +15,11 @@ export interface PosterIncomingOrderProduct {
   price: number;
 }
 
+export interface PosterMinimalIncomingOrderProduct {
+  product_id: number;
+  count: number;
+}
+
 export interface PosterIncomingOrderPayment {
   type: 1;
   sum: number;
@@ -31,11 +36,23 @@ export interface PosterCreateIncomingOrderPayload {
   payment: PosterIncomingOrderPayment;
 }
 
+export interface PosterMinimalCreateIncomingOrderPayload {
+  spot_id: number;
+  phone: string;
+  products: [PosterMinimalIncomingOrderProduct];
+}
+
 export interface BuildPosterIncomingOrderPayloadInput {
   order: Order;
   spotId: string;
   customer: PosterOrderCustomer;
   comment?: string;
+}
+
+export interface BuildPosterMinimalIncomingOrderPayloadInput {
+  order: Order;
+  spotId: string;
+  phone: string;
 }
 
 export class PosterOrderPayloadError extends Error {
@@ -56,34 +73,15 @@ export function buildPosterIncomingOrderPayload(
   input: BuildPosterIncomingOrderPayloadInput,
 ): PosterCreateIncomingOrderPayload {
   const { order, customer } = input;
-
-  if (order.status !== "paid") {
-    throw new PosterOrderPayloadError(
-      `Poster payload requires a paid order, received ${order.status}`,
-    );
-  }
-
-  if (order.fulfilment?.type !== "pickup") {
-    throw new PosterOrderPayloadError(
-      "Only pickup is supported until Poster delivery fields are confirmed",
-    );
-  }
-
-  const [item] = order.items;
-  if (order.items.length !== 1 || item === undefined) {
-    throw new PosterOrderPayloadError(
-      "The first Poster test payload must contain exactly one product",
-    );
-  }
-
-  const spotId = parsePosterId("Poster spot ID", input.spotId);
-  const productId = parsePosterId("Poster product ID", item.menuItemId);
+  const { item, spotId, productId } = validateSinglePaidPickupOrder(
+    order,
+    input.spotId,
+  );
   const firstName = requireText("Customer first name", customer.firstName);
   const phone = requireText("Customer phone", customer.phone);
   const lastName = optionalText("Customer last name", customer.lastName);
   const comment = optionalText("Order comment", input.comment);
 
-  assertPositiveInteger("Product count", item.quantity);
   assertNonNegativeInteger("Product price", item.unitPriceCents);
 
   const totals = calculateOrderTotals(order);
@@ -122,6 +120,58 @@ export function buildPosterIncomingOrderPayload(
       currency: totals.currency,
     },
   };
+}
+
+/**
+ * Builds the historically confirmed minimal sandbox request shape.
+ *
+ * It intentionally omits price, payment, names and comment so a separately
+ * authorized diagnostic attempt can isolate the required Poster fields. With
+ * no comment, the request carries no external correlation reference; callers
+ * must therefore treat an ambiguous response as unrecoverable without a fresh
+ * read contract and must never retry it automatically.
+ */
+export function buildPosterMinimalIncomingOrderPayload(
+  input: BuildPosterMinimalIncomingOrderPayloadInput,
+): PosterMinimalCreateIncomingOrderPayload {
+  const { item, spotId, productId } = validateSinglePaidPickupOrder(
+    input.order,
+    input.spotId,
+  );
+  const phone = requireText("Customer phone", input.phone);
+
+  return {
+    spot_id: spotId,
+    phone,
+    products: [{ product_id: productId, count: item.quantity }],
+  };
+}
+
+function validateSinglePaidPickupOrder(order: Order, spotIdValue: string) {
+  if (order.status !== "paid") {
+    throw new PosterOrderPayloadError(
+      `Poster payload requires a paid order, received ${order.status}`,
+    );
+  }
+
+  if (order.fulfilment?.type !== "pickup") {
+    throw new PosterOrderPayloadError(
+      "Only pickup is supported until Poster delivery fields are confirmed",
+    );
+  }
+
+  const [item] = order.items;
+  if (order.items.length !== 1 || item === undefined) {
+    throw new PosterOrderPayloadError(
+      "The first Poster test payload must contain exactly one product",
+    );
+  }
+
+  const spotId = parsePosterId("Poster spot ID", spotIdValue);
+  const productId = parsePosterId("Poster product ID", item.menuItemId);
+  assertPositiveInteger("Product count", item.quantity);
+
+  return { item, spotId, productId };
 }
 
 function parsePosterId(label: string, value: string): number {

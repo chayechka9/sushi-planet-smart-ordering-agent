@@ -12,6 +12,7 @@ import {
 import {
   PosterOrderPayloadError,
   buildPosterIncomingOrderPayload,
+  buildPosterMinimalIncomingOrderPayload,
   type BuildPosterIncomingOrderPayloadInput,
 } from "../src/integrations/poster/order-payload.js";
 
@@ -125,5 +126,42 @@ describe("buildPosterIncomingOrderPayload", () => {
         createInput({ customer: { ...testCustomer, phone: " " } }),
       ),
     ).toThrow(PosterOrderPayloadError);
+  });
+});
+
+describe("buildPosterMinimalIncomingOrderPayload", () => {
+  it("builds only the historically confirmed required fields", () => {
+    const payload = buildPosterMinimalIncomingOrderPayload({
+      order: createPaidPickupOrder(),
+      spotId: "1",
+      phone: testCustomer.phone,
+    });
+
+    expect(payload).toEqual({
+      spot_id: 1,
+      phone: "+353000000000",
+      products: [{ product_id: 1, count: 1 }],
+    });
+    expect(Object.keys(payload).sort()).toEqual([
+      "phone",
+      "products",
+      "spot_id",
+    ]);
+    expect(Object.keys(payload.products[0]).sort()).toEqual([
+      "count",
+      "product_id",
+    ]);
+  });
+
+  it("keeps paid pickup and single-product validation", () => {
+    const unpaid = setPickup(addItem(createOrder(), testMenuProduct));
+
+    expect(() =>
+      buildPosterMinimalIncomingOrderPayload({
+        order: unpaid,
+        spotId: "1",
+        phone: testCustomer.phone,
+      }),
+    ).toThrow("requires a paid order");
   });
 });

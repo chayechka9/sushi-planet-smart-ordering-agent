@@ -5,6 +5,42 @@
 
 ## 10 сентября 2026
 
+### Подготовка минимальной Poster sandbox-попытки без POST
+
+- Read-only preflight повторно подтвердил отдельный тестовый аккаунт
+  `sushi-planet-bot`, EUR, `Europe/Dublin`, spot `1` и три видимых товара.
+  Для dry-run выбран актуальный product `1` с текущей ценой `1000`
+  евроцентов; token и полный URL с query string не выводились.
+- В workspace не обнаружены Poster SQLite/recovery-файлы, поэтому durable
+  `submitting`/`uncertain` state новой попытки отсутствует. Предыдущий HTTP
+  `422` остаётся исторически зафиксированным `uncertain`; новый POST или retry
+  в этой работе не выполнялся.
+- Добавлен отдельный минимальный профиль текущего payload builder и dry-run:
+  body содержит только `spot_id`, синтетический `phone` и ровно один
+  `products` с актуальным `product_id` и `count: 1`. Необязательные `price`,
+  `payment`, `first_name`, `last_name` и `comment` исключены для изоляции
+  причины прежнего `422`; default prepaid builder и paid-only handoff не
+  изменили поведение.
+- Sandbox one-shot submitter принимает только прежний correlation-bearing
+  prepaid shape либо точный минимальный shape; transport остаётся
+  disabled-by-default, automatic retry отсутствует. Локальный dry-run не
+  содержит credentials/query и не выполняет I/O.
+- Ограничение recovery зафиксировано явно: без `comment` запрос не несёт
+  внешнего correlation reference. После строгого HTTP `200` inspector сможет
+  опираться только на полученный `incoming_order_id` и будущий подтверждённый
+  raw decoder; при timeout или неясном ответе безопасный поиск по correlation
+  невозможен, результат должен остаться `uncertain` без повторного POST.
+- README, PLAN и архитектура синхронизированы с уже реализованной local
+  handoff/sandbox boundary. Production, SumUp, ChoiceQR и обычный `src/server.ts`
+  не использовались и не менялись.
+- Проверки: `npm test` — 169 тестов в 20 файлах прошли;
+  `npm run typecheck` — успешно; `npm run build` — успешно;
+  `git diff --check` — успешно.
+- Result: partial — минимальный dry-run готов; raw incoming-order decoder и
+  recoverable внешний reference для comment-free ambiguous response остаются
+  blocker перед безопасной инспекцией результата.
+- Commit: текущий коммит, содержащий эту запись.
+
 ### Одна разрешённая prepaid-попытка Poster sandbox: uncertain
 
 - Непосредственный read-only preflight подтвердил отдельный тестовый аккаунт

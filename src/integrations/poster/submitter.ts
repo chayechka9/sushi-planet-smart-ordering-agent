@@ -1,13 +1,22 @@
-import type { PosterCreateIncomingOrderPayload } from "./order-payload.js";
+import type {
+  PosterCreateIncomingOrderPayload,
+  PosterMinimalCreateIncomingOrderPayload,
+} from "./order-payload.js";
 
 export interface PosterOrderSubmissionIdentity {
   correlationId: string;
   payloadFingerprint: string;
 }
 
-export interface PosterOrderSubmission extends PosterOrderSubmissionIdentity {
-  payload: PosterCreateIncomingOrderPayload;
+export interface PosterOrderSubmission<
+  TPayload = PosterCreateIncomingOrderPayload,
+> extends PosterOrderSubmissionIdentity {
+  payload: TPayload;
 }
+
+export type PosterSandboxOrderSubmission = PosterOrderSubmission<
+  PosterCreateIncomingOrderPayload | PosterMinimalCreateIncomingOrderPayload
+>;
 
 export interface PosterOrderSubmissionReceipt {
   posterOrderId: string;

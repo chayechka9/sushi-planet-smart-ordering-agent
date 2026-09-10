@@ -45,11 +45,14 @@ Instagram / WhatsApp / Facebook / Telegram
   самовывоз, адрес и явно заданная стоимость доставки, переходы статусов.
 - SQLite order/payment persistence: сохранение связанной пары, атомарный
   переход в `paid` после проверки данных платежа и защита от повторной
-  обработки, в том числе после повторного открытия базы.
+  обработки, в том числе после повторного открытия базы; durable Poster
+  handoff marker блокирует повторную отправку после claim или перезапуска.
 - SumUp Hosted Checkout builder/client, HTTP-verifier checkout и transaction,
   локальный webhook-flow, отдельные sandbox E2E/recovery-инструменты.
-- Read-only Poster client, сборка payload и dry-run одного оплаченного заказа
-  на самовывоз. Автоматического транспорта отправки заказа в Poster пока нет.
+- Read-only Poster client, prepaid и минимальный диагностический payload/dry-run,
+  paid-only handoff с injected submitter, sandbox-only one-shot transport и
+  read-only inspector boundary. Эти Poster-компоненты не подключены к обычному
+  серверу; raw incoming-order decoder и production transport отсутствуют.
 
 Обычный `server.ts` запускает только приложение с health route: он не включает
 SQLite, checkout/verifier или webhook автоматически. Sandbox-инструменты
@@ -75,7 +78,7 @@ SQLite, checkout/verifier или webhook автоматически. Sandbox-и�
 Успешная серверная верификация оплаты, доставка webhook, переход в `paid` и
 duplicate в реальном sandbox, приём предоплаты Poster, появление заказа у кухни
 и полный сквозной сценарий остаются неподтверждёнными. Причины отсутствия
-webhook и первого Poster `422` неизвестны. Данные старой E2E-попытки были
+webhook и последнего Poster `422` неизвестны. Данные старой E2E-попытки были
 удалены; новые recovery-инструменты не восстанавливают удалённую попытку.
 
 Логика умного агента, социальные каналы, передача сотруднику и полноценный

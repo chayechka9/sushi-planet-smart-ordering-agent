@@ -5,6 +5,8 @@ import type { Order } from "../domain/order.js";
 import {
   buildPosterIncomingOrderPayload,
   type PosterOrderCustomer,
+  type PosterCreateIncomingOrderPayload,
+  type PosterMinimalCreateIncomingOrderPayload,
 } from "../integrations/poster/order-payload.js";
 import type {
   PosterOrderSubmissionIdentity,
@@ -151,7 +153,9 @@ export class SubmitPaidOrderToPosterService {
 
 export function createPosterHandoffIdentity(
   orderId: string,
-  payload: ReturnType<typeof buildPosterIncomingOrderPayload>,
+  payload:
+    | PosterCreateIncomingOrderPayload
+    | PosterMinimalCreateIncomingOrderPayload,
 ): PosterOrderSubmissionIdentity {
   const payloadFingerprint = createHash("sha256")
     .update(JSON.stringify(payload), "utf8")

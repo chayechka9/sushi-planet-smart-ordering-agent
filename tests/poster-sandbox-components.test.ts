@@ -43,6 +43,20 @@ function createSubmission(): PosterOrderSubmission {
   };
 }
 
+function createMinimalSubmission() {
+  return {
+    correlationId,
+    payloadFingerprint,
+    payload: {
+      spot_id: 1,
+      phone: syntheticPhone,
+      products: [{ product_id: 1, count: 1 }] as [
+        { product_id: number; count: number },
+      ],
+    },
+  };
+}
+
 function createSnapshot(
   overrides: Partial<PosterSandboxOrderSnapshot> = {},
 ): PosterSandboxOrderSnapshot {
@@ -212,6 +226,38 @@ describe("Poster sandbox one-shot submitter", () => {
         httpStatus: null,
         contentType: null,
       },
+    });
+    expect(transport.post).toHaveBeenCalledOnce();
+  });
+
+  it("accepts the exact historical minimum once without adding fields", async () => {
+    const transport: PosterSandboxPostTransport = {
+      isEnabled: () => true,
+      post: vi.fn(async () => ({
+        ok: true,
+        status: 200,
+        contentType: "application/json",
+        bodyText: JSON.stringify({ response: { incoming_order_id: 2 } }),
+      })),
+    };
+    const submitter = new InjectedPosterSandboxSubmitter(transport);
+    const submission = createMinimalSubmission();
+
+    await expect(submitter.submitOnce(submission)).resolves.toEqual({
+      outcome: "submitted",
+      posterOrderId: "2",
+    });
+    expect(transport.post).toHaveBeenCalledOnce();
+    expect(transport.post).toHaveBeenCalledWith({
+      method: "POST",
+      endpoint: POSTER_CREATE_INCOMING_ORDER_ENDPOINT,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(submission.payload),
+    });
+
+    await expect(submitter.submitOnce(submission)).resolves.toEqual({
+      outcome: "submitted",
+      posterOrderId: "2",
     });
     expect(transport.post).toHaveBeenCalledOnce();
   });

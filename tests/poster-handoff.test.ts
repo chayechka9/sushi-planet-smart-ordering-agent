@@ -9,6 +9,7 @@ import {
   RecoverPosterHandoffService,
 } from "../src/application/recover-poster-handoff.js";
 import {
+  createPosterHandoffIdentity,
   PosterHandoffError,
   SubmitPaidOrderToPosterService,
 } from "../src/application/submit-paid-order-to-poster.js";
@@ -177,6 +178,23 @@ function createRecoveryService(
 }
 
 describe("local paid-order Poster handoff", () => {
+  it("creates a stable local identity for the minimal diagnostic shape", () => {
+    const payload = {
+      spot_id: 1,
+      phone: "+353000000000",
+      products: [{ product_id: 1, count: 1 }] as [
+        { product_id: number; count: number },
+      ],
+    };
+
+    const identity = createPosterHandoffIdentity("ord_minimal", payload);
+    expect(identity.correlationId).toBe("poster-handoff:ord_minimal");
+    expect(identity.payloadFingerprint).toMatch(/^[0-9a-f]{64}$/u);
+    expect(createPosterHandoffIdentity("ord_minimal", payload)).toEqual(
+      identity,
+    );
+  });
+
   it("does not submit an order that is still awaiting payment", async () => {
     const repository = openRepository(createDatabasePath());
     const pair = createStoredPair(repository, "awaiting-payment");

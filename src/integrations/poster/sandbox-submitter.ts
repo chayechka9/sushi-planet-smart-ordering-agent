@@ -4,6 +4,7 @@ import type {
   PosterOrderSubmissionIdentity,
   PosterOrderSubmissionReceipt,
   PosterOrderSubmitter,
+  PosterSandboxOrderSubmission,
 } from "./submitter.js";
 
 export interface PosterSandboxPostRequest {
@@ -62,7 +63,7 @@ export interface PosterSandboxSubmissionDiagnostic {
 
 export interface PosterSandboxOrderSubmitter {
   submitOnce(
-    submission: PosterOrderSubmission,
+    submission: PosterSandboxOrderSubmission,
   ): Promise<PosterSandboxSubmissionResult>;
 }
 
@@ -170,7 +171,7 @@ export class InjectedPosterSandboxSubmitter
   }
 
   async submitOnce(
-    submission: PosterOrderSubmission,
+    submission: PosterSandboxOrderSubmission,
   ): Promise<PosterSandboxSubmissionResult> {
     if (this.transport === undefined || !this.transport.isEnabled()) {
       throw new PosterSandboxTransportDisabledError();
@@ -181,7 +182,7 @@ export class InjectedPosterSandboxSubmitter
       }
       return this.completedResult ?? uncertain("attempt_in_progress");
     }
-    if (submission.payload.comment !== submission.correlationId) {
+    if (!hasSafeSubmissionShape(submission)) {
       throw new PosterSandboxTransportDisabledError();
     }
 
@@ -234,6 +235,21 @@ export class InjectedPosterSandboxSubmitter
     this.completedResult = result;
     return result;
   }
+}
+
+function hasSafeSubmissionShape(
+  submission: PosterSandboxOrderSubmission,
+): boolean {
+  const payload = submission.payload;
+  if ("payment" in payload) {
+    return payload.comment === submission.correlationId;
+  }
+
+  return (
+    Object.keys(payload).sort().join(",") === "phone,products,spot_id" &&
+    payload.products.length === 1 &&
+    Object.keys(payload.products[0]).sort().join(",") === "count,product_id"
+  );
 }
 
 function parseConfirmedPosterOrderId(bodyText: string): string | undefined {

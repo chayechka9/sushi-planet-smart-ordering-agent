@@ -12,6 +12,7 @@ import {
 import {
   POSTER_CREATE_INCOMING_ORDER_ENDPOINT,
   preparePosterCreateIncomingOrderDryRun,
+  preparePosterMinimalCreateIncomingOrderDryRun,
 } from "../src/integrations/poster/dry-run.js";
 import type { BuildPosterIncomingOrderPayloadInput } from "../src/integrations/poster/order-payload.js";
 
@@ -105,5 +106,35 @@ describe("preparePosterCreateIncomingOrderDryRun", () => {
     expect(() =>
       preparePosterCreateIncomingOrderDryRun(createInput(delivery)),
     ).toThrow("Only pickup is supported");
+  });
+});
+
+describe("preparePosterMinimalCreateIncomingOrderDryRun", () => {
+  it("prepares only spot, synthetic phone and one product without I/O", () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(() => {
+      throw new Error("Network access is forbidden in dry-run tests");
+    });
+
+    const request = preparePosterMinimalCreateIncomingOrderDryRun({
+      order: createPaidPickupOrder(),
+      spotId: "1",
+      phone: testCustomer.phone,
+    });
+
+    expect(request).toEqual({
+      mode: "dry-run",
+      method: "POST",
+      endpoint: POSTER_CREATE_INCOMING_ORDER_ENDPOINT,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        spot_id: 1,
+        phone: "+353000000000",
+        products: [{ product_id: 1, count: 1 }],
+      }),
+    });
+    expect(request.body).not.toMatch(
+      /price|payment|first_name|last_name|comment|token/u,
+    );
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 });
