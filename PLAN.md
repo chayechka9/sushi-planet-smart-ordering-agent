@@ -27,6 +27,28 @@
 не реальный аккаунт Sushi Planet. Production-доступ позже должен предоставить
 Александр или владелец аккаунта.
 
+## Актуальный roadmap
+
+1. **Фундамент проекта — завершён:** Fastify/TypeScript, order core, SQLite
+   order/payment, локальные SumUp/Poster components и тесты.
+2. **Единый локальный backend-flow — текущий этап:** order → checkout link →
+   webhook → server-side verification → paid → один Poster handoff на injected/
+   mock dependencies.
+3. **Sandbox E2E:** SumUp payment, webhook, `PAID`/`SUCCESSFUL`, duplicate и
+   Poster prepaid/kitchen validation.
+4. **AI-агент:** меню, выбор блюд, корзина, pickup/delivery, адрес/телефон,
+   ссылка на оплату, статусы и handoff сотруднику.
+5. **Один тестовый социальный канал.**
+6. **Production preflight** с ограниченным доступом владельца Sushi Planet.
+7. **Контролируемый пилот.**
+8. **Остальные социальные каналы и production operations.**
+
+Production-доступ Александра нужен после успешного sandbox и до подключения
+реального AI-агента. Реальные аккаунты и production actions требуют отдельной
+настройки, проверки доступа и явного разрешения; они не включаются простой
+подменой API-ключей. ChoiceQR и существующий сайт остаются вне основной
+архитектуры. Проект пока не готов к пилоту.
+
 ## Этапы работы
 
 Этапы 0–1 завершены, этапы 2–4 выполнены частично. Работы по SumUp исторически

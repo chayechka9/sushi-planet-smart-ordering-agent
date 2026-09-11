@@ -5,6 +5,31 @@
 
 ## 11 сентября 2026
 
+### Единый локальный backend-flow
+
+- Добавлен тонкий application-service, который использует существующие SumUp
+  checkout builder, payment repository, verified webhook processor и durable
+  Poster handoff без нового transport или параллельной архитектуры.
+- Checkout creation, server-side verification и Poster submission остаются
+  injected boundaries. Локальные тесты используют только synthetic fixtures и
+  fakes; обычный `src/server.ts`, внешние интеграции и production wiring не
+  менялись.
+- Единый flow сохраняет pending order/payment после подготовки checkout link,
+  передаёт заказ в Poster только после нового verified `paid`, не делает handoff
+  для pending/not-paid и не повторяет его для duplicate webhook.
+- `uncertain` результат Poster сохраняет paid order и durable recovery marker;
+  повторный webhook не вызывает automatic retry. Несовпадение verified payment
+  со связанной локальной парой отклоняется до Poster handoff.
+- `PLAN.md` дополнен согласованным восьмиэтапным roadmap и явными production,
+  ChoiceQR/site и pilot readiness границами без переписывания исторических
+  этапов. README и архитектурные границы не менялись.
+- Проверки: `npm test` — 210 тестов в 21 файле прошли;
+  `npm run typecheck`; `npm run build`; `git diff --check` — успешно.
+- Result: complete — минимальный локальный order-to-Poster flow собран на
+  injected dependencies; sandbox E2E, prepayment и kitchen visibility остаются
+  неподтверждёнными отдельными этапами.
+- Commit: текущий коммит, содержащий эту запись.
+
 ### Локальная нормализация подтверждённой Poster incoming-order схемы
 
 - На основании отдельно завершённого read-only аудита добавлен чистый decoder
