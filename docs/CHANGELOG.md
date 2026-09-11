@@ -5,6 +5,51 @@
 
 ## 11 сентября 2026
 
+### Локальная связь conversation с verified backend statuses
+
+- Добавлен тонкий application bridge между существующими conversation state,
+  `LocalBackendFlowService` и order/payment repository. Checkout по-прежнему
+  создаётся conversation-service через существующий backend flow, который
+  атомарно сохраняет order/payment с единым order ID.
+- До обработки bridge использует существующий webhook decision boundary только
+  для безопасной корреляции payment → order → conversation. Unknown payment и
+  order останавливаются до verifier/reconciliation и не меняют состояние
+  другого conversation; Poster handoff вызывается только самим backend flow.
+- Conversation state получил отдельный безопасный status snapshot для payment
+  и Poster submission. После authoritative repository reconciliation bridge
+  синхронизирует сохранённый order и выдаёт `payment_confirmed`; успешный Poster
+  handoff дополнительно выдаёт `order_submitted`.
+- `pending` отображается как `payment_pending`, non-paid — как
+  `payment_not_confirmed`, duplicate — только как `already_processed` без
+  повторного `payment_confirmed`. Poster `in_progress` и `uncertain`
+  отображаются как `order_submission_pending` и
+  `order_submission_uncertain`; verifier/backend errors преобразуются в
+  `processing_error` без исходного текста ошибки.
+- Bridge не вызывает `markPaid`, reconciliation или Poster submitter напрямую.
+  Он принимает paid только когда существующий verifier и repository уже
+  сохранили связанную paid-пару с successful transaction и `paidAt`, а статус
+  Poster берёт из durable handoff state. Сообщение клиента об оплате сохраняет
+  прежнее поведение и оставляет conversation/order в `awaiting_payment`.
+- In-memory store теперь поддерживает поиск conversation по order ID и запрещает
+  связывать один order ID с разными conversations. Production durability и
+  атомарность SQLite с conversation store остаются отдельным будущим этапом.
+- Добавлены только synthetic integration-тесты с настоящим временным SQLite и
+  injected fake checkout/verifier/Poster boundaries. Они покрывают checkout и
+  ожидание оплаты, verified confirmation, duplicate, pending/not-paid,
+  submitted/uncertain Poster outcomes, unknown identity, customer payment claim,
+  verifier error и запрет Poster handoff до verified payment.
+- LLM, социальные каналы, обычный `src/server.ts`, real transport и production
+  wiring не подключались. Внешние SumUp, Poster и ChoiceQR запросы не
+  выполнялись; `.env`, sandbox artifacts, secrets, customer/card data, raw
+  responses, URL и tokens не читались и не добавлялись. PLAN не менялся:
+  roadmap и крупные границы этапов остались прежними.
+- Проверки: `npm test` — 231 тест в 23 файлах прошёл;
+  `npm run typecheck`; `npm run build`; `git diff --check` — успешно.
+- Result: complete — bounded локальная conversation ↔ verified backend связь
+  готова; channel adapters, persistent conversation storage и production
+  wiring остаются отдельными этапами.
+- Commit: текущий коммит, содержащий эту запись.
+
 ### Локальный transport-neutral conversation use case
 
 - Добавлен детерминированный application-service для conversation-команд поверх

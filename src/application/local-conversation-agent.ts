@@ -39,6 +39,23 @@ export interface ConversationCheckoutState {
   checkoutLink: string;
 }
 
+export type ConversationPaymentStatus =
+  | "not_requested"
+  | "awaiting_payment"
+  | "payment_not_confirmed"
+  | "payment_confirmed";
+
+export type ConversationOrderSubmissionStatus =
+  | "not_started"
+  | "submission_pending"
+  | "submission_uncertain"
+  | "order_submitted";
+
+export interface ConversationBackendStatus {
+  payment: ConversationPaymentStatus;
+  orderSubmission: ConversationOrderSubmissionStatus;
+}
+
 export interface ConversationCartItemView {
   menuItemId: string;
   name: string;
@@ -56,6 +73,7 @@ export interface ConversationOrderView {
   missingFields: readonly ConversationMissingField[];
   totals: OrderTotals;
   totalIsFinal: boolean;
+  backendStatus: ConversationBackendStatus;
 }
 
 export type ConversationAgentResponse =
@@ -124,6 +142,7 @@ export interface LocalConversationState {
   fulfilmentChoice: "pickup" | "delivery" | null;
   customer: ConversationCustomerState;
   checkout?: ConversationCheckoutState;
+  backendStatus: ConversationBackendStatus;
   processedMessages: readonly ProcessedConversationMessage[];
 }
 
@@ -131,6 +150,7 @@ export interface LocalConversationStateStore {
   findByConversationId(
     conversationId: string,
   ): LocalConversationState | undefined;
+  findByOrderId(orderId: string): LocalConversationState | undefined;
   save(state: LocalConversationState): void;
 }
 
@@ -471,6 +491,10 @@ export class LocalConversationAgentService {
     const nextState: LocalConversationState = {
       ...state,
       order,
+      backendStatus: {
+        payment: "awaiting_payment",
+        orderSubmission: "not_started",
+      },
       checkout: {
         orderId: checkout.orderId,
         checkoutLink: checkout.checkoutLink,
@@ -545,6 +569,10 @@ export class LocalConversationAgentService {
       order,
       fulfilmentChoice: null,
       customer: {},
+      backendStatus: {
+        payment: "not_requested",
+        orderSubmission: "not_started",
+      },
       processedMessages: [],
     };
   }
@@ -585,6 +613,7 @@ function toOrderView(state: LocalConversationState): ConversationOrderView {
     missingFields,
     totals,
     totalIsFinal: missingFields.length === 0,
+    backendStatus: { ...state.backendStatus },
   };
 }
 
