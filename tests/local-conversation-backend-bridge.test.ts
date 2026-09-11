@@ -21,7 +21,7 @@ import type {
 import { createOrder, type MenuItemSnapshot } from "../src/domain/order.js";
 import type { PosterOrderSubmitter } from "../src/integrations/poster/submitter.js";
 import type { SumUpMerchantSummary } from "../src/integrations/sumup/client.js";
-import { InMemoryConversationStateStore } from "../src/storage/in-memory-conversation-store.js";
+import { SqliteConversationStateStore } from "../src/storage/sqlite/conversation-state-store.js";
 import { SqliteOrderPaymentRepository } from "../src/storage/sqlite/order-payment-repository.js";
 
 const fixedNow = new Date("2026-09-11T21:00:00.000Z");
@@ -44,6 +44,7 @@ const merchant: SumUpMerchantSummary = {
 };
 
 const repositories: SqliteOrderPaymentRepository[] = [];
+const conversationStores: SqliteConversationStateStore[] = [];
 const temporaryDirectories: string[] = [];
 let fetchSpy: ReturnType<typeof vi.spyOn>;
 
@@ -56,6 +57,7 @@ beforeEach(() => {
 afterEach(() => {
   expect(fetchSpy).not.toHaveBeenCalled();
   vi.restoreAllMocks();
+  for (const store of conversationStores.splice(0).reverse()) store.close();
   for (const repository of repositories.splice(0).reverse()) repository.close();
   for (const directory of temporaryDirectories.splice(0).reverse()) {
     rmSync(directory, { recursive: true, force: true });
@@ -66,7 +68,7 @@ interface Harness {
   agent: LocalConversationAgentService;
   backendFlow: LocalBackendFlowService;
   bridge: LocalConversationBackendBridge;
-  conversationStore: InMemoryConversationStateStore;
+  conversationStore: SqliteConversationStateStore;
   repository: SqliteOrderPaymentRepository;
   createCheckout: ReturnType<typeof vi.fn>;
   verifyCheckout: ReturnType<typeof vi.fn>;
@@ -80,11 +82,11 @@ function createHarness(options: {
 } = {}): Harness {
   const directory = mkdtempSync(join(tmpdir(), "conversation-bridge-test-"));
   temporaryDirectories.push(directory);
-  const repository = new SqliteOrderPaymentRepository(
-    join(directory, "orders.sqlite"),
-  );
+  const databasePath = join(directory, "orders.sqlite");
+  const repository = new SqliteOrderPaymentRepository(databasePath);
   repositories.push(repository);
-  const conversationStore = new InMemoryConversationStateStore();
+  const conversationStore = new SqliteConversationStateStore(databasePath);
+  conversationStores.push(conversationStore);
   const createCheckout = vi.fn(async (preparation) => ({
     checkoutId,
     checkoutReference: preparation.checkoutReference,
@@ -323,7 +325,10 @@ describe("local conversation to verified backend status bridge", () => {
       harness.conversationStore.findByConversationId(conversationId),
     ).toEqual(before);
 
-    const emptyConversationStore = new InMemoryConversationStateStore();
+    const emptyConversationStore = new SqliteConversationStateStore(
+      join(temporaryDirectories[0]!, "empty-conversations.sqlite"),
+    );
+    conversationStores.push(emptyConversationStore);
     const bridgeWithoutConversation = new LocalConversationBackendBridge({
       backendFlow: harness.backendFlow,
       repository: harness.repository,

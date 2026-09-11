@@ -82,9 +82,12 @@ Production-доступ Александра нужен после успешн�
 проверяемые переходы статусов. Реализованы также модель payment, SQLite
 order/payment persistence, атомарный переход в `paid` после проверки и
 локальная защита от повторов, а также durable claim для paid-only Poster
-handoff с controlled recovery. Эти компоненты покрыты локальными тестами.
-Клиент, модификаторы, правила и время доставки и более широкое хранилище
-остаются следующими частями этапа.
+handoff с controlled recovery. Transport-neutral conversation state теперь
+также сохраняется в SQLite вместе с channel/user identity, корзиной,
+customer/fulfilment, checkout references, безопасными backend-status snapshots,
+message duplicate-защитой и timestamps и восстанавливается после restart.
+Эти компоненты покрыты локальными тестами. Модификаторы, правила и время
+доставки и более широкий event journal остаются следующими частями этапа.
 
 ### 3. Подключить меню и Poster — частично выполнено
 
@@ -138,6 +141,13 @@ checkout/transaction, локальные order/payment остались неоп
 - показывать итог перед оплатой;
 - передавать сложные случаи сотруднику;
 - не позволять языковой модели самостоятельно придумывать цены или блюда.
+
+Текущий локальный результат: детерминированный conversation use case собирает
+корзину и обязательные pickup/delivery/customer данные, создаёт checkout через
+существующий backend flow и принимает payment/Poster statuses только после
+authoritative verified flow. Его state реализует прежний store-port через
+SQLite, переживает restart и сохраняет duplicate message guard. Свободный язык,
+LLM, handoff сотруднику и transport adapters ещё не реализованы.
 
 ### 6. Подключить первый канал
 

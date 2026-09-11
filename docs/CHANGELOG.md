@@ -5,6 +5,52 @@
 
 ## 11 сентября 2026
 
+### Persistent conversation storage на SQLite
+
+- Добавлена migration v3 `create_conversation_storage` в существующую
+  последовательность SQLite migrations; отдельная архитектура или база не
+  создавались. Новый `SqliteConversationStateStore` реализует прежний
+  `LocalConversationStateStore` и работает с тем же versioned schema runner.
+- После reopen сохраняются conversation ID, безопасная channel/user identity,
+  единый order ID, checkout ID/reference/link, текущий conversation status,
+  payment/order-submission snapshot, корзина, pickup/delivery, обязательные
+  customer fields, processed message history, последний message ID и
+  timestamps.
+- Запись выполняется параметризованными SQL-запросами внутри
+  `BEGIN IMMEDIATE`. Уникальные order/checkout references, неизменяемая
+  conversation/checkout identity, неперезаписываемая история сообщений и
+  optimistic update guard блокируют чужие связи, повторное применение message
+  ID и lost update; constraint/error откатывает транзакцию без изменения ранее
+  сохранённого conversation.
+- Runtime decoder сверяет типизированный payload с индексными колонками и
+  проверяет согласованность conversation, order, fulfilment и безопасных
+  backend statuses. Подтверждённый payment snapshot не может вернуться в
+  unverified, а `order_submitted` обязан соответствовать
+  `submitted_to_poster`.
+- Checkout boundary теперь возвращает существующие checkout ID/reference
+  вместе со ссылкой, чтобы conversation мог восстановить корреляцию после
+  restart. Это не меняет создание payment, webhook verification,
+  reconciliation или paid-only Poster guards.
+- Существующие bridge integration-тесты переведены с in-memory conversation
+  store на временный SQLite и по-прежнему подтверждают, что только verified
+  backend flow даёт `payment_confirmed`/`order_submitted`, а pending,
+  not-paid, duplicate и uncertain не обходят прежние guards.
+- Добавлены 7 synthetic SQLite integration-тестов: reopen, identity/timestamps,
+  cart/customer/fulfilment и checkout/status snapshots, duplicate message после
+  reopen, `payment_confirmed`, `order_submitted`, pending/uncertain, unknown
+  conversation и rollback при конфликте уникальной checkout reference.
+- Card data, secrets, raw webhook/provider responses и реальные customer data
+  не сохраняются. LLM, соцсети, production `server.ts`, SumUp/Poster transport
+  и production wiring не подключались; внешние checkout, payment, Poster POST
+  и другие сетевые запросы не выполнялись. `.env` и приватные sandbox-файлы не
+  открывались.
+- Проверки: `npm test` — 238 тестов в 24 файлах прошли;
+  `npm run typecheck`; `npm run build`; `git diff --check` — успешно.
+- Result: complete — bounded persistent conversation storage готов и сохраняет
+  существующие payment/idempotency/Poster boundaries; transport adapters, LLM,
+  production wiring и более широкий event journal остаются отдельными этапами.
+- Commit: текущий коммит, содержащий эту запись.
+
 ### Локальная связь conversation с verified backend statuses
 
 - Добавлен тонкий application bridge между существующими conversation state,

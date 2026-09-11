@@ -175,6 +175,8 @@ async function prepareCheckout(
     service.prepareCheckoutLink({ order, paymentAttempt: 1, merchant }),
   ).resolves.toEqual({
     orderId: order.id,
+    checkoutId: `checkout-${order.id}`,
+    checkoutReference: `sumup-${order.id}-1`,
     checkoutLink: "synthetic-checkout-link",
   });
 }

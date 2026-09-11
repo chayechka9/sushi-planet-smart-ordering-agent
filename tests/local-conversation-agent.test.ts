@@ -88,6 +88,8 @@ function createHarness(options: {
     }
     return {
       orderId: order.id,
+      checkoutId: "synthetic-checkout-id",
+      checkoutReference: `synthetic-checkout-reference-${order.id}`,
       checkoutLink: "synthetic-checkout-link",
     };
   });
@@ -367,6 +369,8 @@ describe("local transport-neutral conversation agent", () => {
     const state = harness.stateStore.findByConversationId(conversationId);
     expect(state?.checkout).toEqual({
       orderId: state?.order.id,
+      checkoutId: "synthetic-checkout-id",
+      checkoutReference: `synthetic-checkout-reference-${state?.order.id}`,
       checkoutLink: "synthetic-checkout-link",
     });
     expect(harness.prepareCheckoutLink).toHaveBeenCalledOnce();

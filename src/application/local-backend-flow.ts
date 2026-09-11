@@ -45,6 +45,8 @@ export interface PrepareLocalCheckoutLinkInput {
 
 export interface PreparedLocalCheckoutLink {
   orderId: string;
+  checkoutId: string;
+  checkoutReference: string;
   checkoutLink: string;
 }
 
@@ -125,6 +127,8 @@ export class LocalBackendFlowService {
 
     return {
       orderId: input.order.id,
+      checkoutId: checkout.checkoutId,
+      checkoutReference: checkout.checkoutReference,
       checkoutLink: checkout.hostedCheckoutUrl,
     };
   }

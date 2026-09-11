@@ -36,8 +36,24 @@ export interface ConversationCustomerState {
 
 export interface ConversationCheckoutState {
   orderId: string;
+  checkoutId: string;
+  checkoutReference: string;
   checkoutLink: string;
 }
+
+export interface ConversationIdentity {
+  channel: string;
+  userId: string;
+}
+
+export type ConversationStatus =
+  | "collecting_order"
+  | "awaiting_payment"
+  | "payment_not_confirmed"
+  | "payment_confirmed"
+  | "submission_pending"
+  | "submission_uncertain"
+  | "order_submitted";
 
 export type ConversationPaymentStatus =
   | "not_requested"
@@ -128,9 +144,10 @@ export interface HandleConversationCommandInput {
   conversationId: string;
   messageId: string;
   command: ConversationAgentCommand;
+  identity?: ConversationIdentity;
 }
 
-interface ProcessedConversationMessage {
+export interface ProcessedConversationMessage {
   messageId: string;
   commandFingerprint: string;
   response: ConversationAgentResponse;
@@ -138,12 +155,16 @@ interface ProcessedConversationMessage {
 
 export interface LocalConversationState {
   conversationId: string;
+  identity: ConversationIdentity;
+  status: ConversationStatus;
   order: Order;
   fulfilmentChoice: "pickup" | "delivery" | null;
   customer: ConversationCustomerState;
   checkout?: ConversationCheckoutState;
   backendStatus: ConversationBackendStatus;
   processedMessages: readonly ProcessedConversationMessage[];
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface LocalConversationStateStore {
@@ -233,6 +254,16 @@ export class LocalConversationAgentService {
     const messageId = requireIdentity(input.messageId);
     const commandFingerprint = fingerprintCommand(input.command);
     const existing = this.loadState(conversationId);
+    const identity = normalizeConversationIdentity(
+      input.identity ?? { channel: "local", userId: conversationId },
+    );
+    if (
+      existing !== undefined &&
+      (existing.identity.channel !== identity.channel ||
+        existing.identity.userId !== identity.userId)
+    ) {
+      throw new ConversationAgentError("invalid_identity");
+    }
     const prior = existing?.processedMessages.find(
       (message) => message.messageId === messageId,
     );
@@ -244,14 +275,16 @@ export class LocalConversationAgentService {
       return prior.response;
     }
 
-    const state = existing ?? this.createInitialState(conversationId);
+    const state = existing ?? this.createInitialState(conversationId, identity);
     const result = await this.applyCommand(state, input.command);
+    const updatedAt = this.now().toISOString();
     const nextState: LocalConversationState = {
       ...result.state,
       processedMessages: [
         ...result.state.processedMessages,
         { messageId, commandFingerprint, response: result.response },
       ],
+      updatedAt,
     };
     this.saveState(nextState);
     return result.response;
@@ -483,6 +516,8 @@ export class LocalConversationAgentService {
     }
     if (
       checkout.orderId !== order.id ||
+      checkout.checkoutId.trim().length === 0 ||
+      checkout.checkoutReference.trim().length === 0 ||
       checkout.checkoutLink.trim().length === 0
     ) {
       throw new ConversationAgentError("checkout_failed");
@@ -495,8 +530,11 @@ export class LocalConversationAgentService {
         payment: "awaiting_payment",
         orderSubmission: "not_started",
       },
+      status: "awaiting_payment",
       checkout: {
         orderId: checkout.orderId,
+        checkoutId: checkout.checkoutId,
+        checkoutReference: checkout.checkoutReference,
         checkoutLink: checkout.checkoutLink,
       },
     };
@@ -550,7 +588,10 @@ export class LocalConversationAgentService {
     return snapshot;
   }
 
-  private createInitialState(conversationId: string): LocalConversationState {
+  private createInitialState(
+    conversationId: string,
+    identity: ConversationIdentity,
+  ): LocalConversationState {
     let order: Order;
     try {
       order = this.dependencies.createOrder();
@@ -564,8 +605,11 @@ export class LocalConversationAgentService {
     ) {
       throw new ConversationAgentError("state_unavailable");
     }
+    const timestamp = this.now().toISOString();
     return {
       conversationId,
+      identity,
+      status: "collecting_order",
       order,
       fulfilmentChoice: null,
       customer: {},
@@ -574,6 +618,8 @@ export class LocalConversationAgentService {
         orderSubmission: "not_started",
       },
       processedMessages: [],
+      createdAt: timestamp,
+      updatedAt: timestamp,
     };
   }
 
@@ -707,6 +753,15 @@ function requireIdentity(value: string): string {
     throw new ConversationAgentError("invalid_identity");
   }
   return normalized;
+}
+
+function normalizeConversationIdentity(
+  identity: ConversationIdentity,
+): ConversationIdentity {
+  return {
+    channel: requireIdentity(identity.channel),
+    userId: requireIdentity(identity.userId),
+  };
 }
 
 function fingerprintCommand(command: ConversationAgentCommand): string {

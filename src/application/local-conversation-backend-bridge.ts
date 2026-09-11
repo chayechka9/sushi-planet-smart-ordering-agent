@@ -4,6 +4,7 @@ import type {
 } from "./local-backend-flow.js";
 import type {
   ConversationBackendStatus,
+  ConversationStatus,
   LocalConversationState,
   LocalConversationStateStore,
 } from "./local-conversation-agent.js";
@@ -61,6 +62,7 @@ export interface LocalConversationBackendBridgeDependencies {
   backendFlow: LocalConversationPaymentFlow;
   repository: LocalConversationBackendRepository;
   stateStore: LocalConversationStateStore;
+  now?: () => Date;
 }
 
 interface AuthoritativeConversationState {
@@ -74,9 +76,13 @@ interface AuthoritativeConversationState {
  * mark an order paid, or submit to Poster by itself.
  */
 export class LocalConversationBackendBridge {
+  private readonly now: () => Date;
+
   constructor(
     private readonly dependencies: LocalConversationBackendBridgeDependencies,
-  ) {}
+  ) {
+    this.now = dependencies.now ?? (() => new Date());
+  }
 
   async process(
     input: ProcessConversationBackendEventInput,
@@ -241,6 +247,8 @@ export class LocalConversationBackendBridge {
         ...state,
         order: authoritative.order,
         backendStatus: authoritative.status,
+        status: toConversationStatus(authoritative.status),
+        updatedAt: this.now().toISOString(),
       });
     } catch {
       return {
@@ -332,6 +340,30 @@ export class LocalConversationBackendBridge {
     } catch {
       return undefined;
     }
+  }
+}
+
+function toConversationStatus(
+  status: ConversationBackendStatus,
+): ConversationStatus {
+  switch (status.orderSubmission) {
+    case "order_submitted":
+      return "order_submitted";
+    case "submission_uncertain":
+      return "submission_uncertain";
+    case "submission_pending":
+      return "submission_pending";
+    case "not_started":
+      switch (status.payment) {
+        case "payment_confirmed":
+          return "payment_confirmed";
+        case "payment_not_confirmed":
+          return "payment_not_confirmed";
+        case "awaiting_payment":
+          return "awaiting_payment";
+        case "not_requested":
+          return "collecting_order";
+      }
   }
 }
 

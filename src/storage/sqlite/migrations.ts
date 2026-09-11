@@ -102,6 +102,78 @@ const MIGRATIONS: readonly SqliteMigration[] = [
       CREATE INDEX poster_handoffs_status_idx ON poster_handoffs(status);
     `,
   },
+  {
+    version: 3,
+    name: "create_conversation_storage",
+    sql: `
+      CREATE TABLE conversations (
+        conversation_id TEXT PRIMARY KEY
+          CHECK (length(trim(conversation_id)) > 0),
+        channel TEXT NOT NULL CHECK (length(trim(channel)) > 0),
+        user_id TEXT NOT NULL CHECK (length(trim(user_id)) > 0),
+        order_id TEXT NOT NULL UNIQUE CHECK (length(trim(order_id)) > 0),
+        checkout_id TEXT UNIQUE,
+        checkout_reference TEXT UNIQUE,
+        checkout_link TEXT,
+        status TEXT NOT NULL CHECK (
+          status IN (
+            'collecting_order',
+            'awaiting_payment',
+            'payment_not_confirmed',
+            'payment_confirmed',
+            'submission_pending',
+            'submission_uncertain',
+            'order_submitted'
+          )
+        ),
+        payment_status TEXT NOT NULL CHECK (
+          payment_status IN (
+            'not_requested',
+            'awaiting_payment',
+            'payment_not_confirmed',
+            'payment_confirmed'
+          )
+        ),
+        order_submission_status TEXT NOT NULL CHECK (
+          order_submission_status IN (
+            'not_started',
+            'submission_pending',
+            'submission_uncertain',
+            'order_submitted'
+          )
+        ),
+        last_processed_message_id TEXT,
+        state_json TEXT NOT NULL CHECK (json_valid(state_json)),
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        CHECK (
+          (
+            checkout_id IS NULL
+            AND checkout_reference IS NULL
+            AND checkout_link IS NULL
+          )
+          OR
+          (
+            checkout_id IS NOT NULL
+            AND checkout_reference IS NOT NULL
+            AND checkout_link IS NOT NULL
+            AND
+            length(trim(checkout_id)) > 0
+            AND length(trim(checkout_reference)) > 0
+            AND length(trim(checkout_link)) > 0
+          )
+        ),
+        CHECK (
+          last_processed_message_id IS NULL
+          OR length(trim(last_processed_message_id)) > 0
+        )
+      ) STRICT;
+
+      CREATE INDEX conversations_channel_user_idx
+        ON conversations(channel, user_id);
+      CREATE INDEX conversations_status_idx ON conversations(status);
+    `,
+  },
 ];
 
 export class SqliteMigrationError extends Error {

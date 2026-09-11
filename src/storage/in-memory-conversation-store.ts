@@ -3,7 +3,7 @@ import type {
   LocalConversationStateStore,
 } from "../application/local-conversation-agent.js";
 
-/** Local development store; production durability remains a separate stage. */
+/** Ephemeral test/development implementation; SQLite provides local durability. */
 export class InMemoryConversationStateStore
   implements LocalConversationStateStore
 {
