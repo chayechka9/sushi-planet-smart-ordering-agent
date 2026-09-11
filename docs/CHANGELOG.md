@@ -5,6 +5,52 @@
 
 ## 11 сентября 2026
 
+### Одна разрешённая SumUp → Poster sandbox E2E-проверка
+
+- Исходный Git status был чистым. Обязательный read-only preflight script одним
+  SumUp Get Merchant подтвердил настроенный IE/EUR sandbox; bootstrap E2E
+  harness повторил собственную такую же guarded merchant-проверку. Poster
+  settings/menu подтвердили отдельный тестовый аккаунт, EUR, spot `1` и
+  актуальный видимый product `1` по цене `1000` евроцентов. Незавершённых SumUp
+  или Poster recovery-артефактов перед попыткой не было.
+- Существующий E2E harness поднял только loopback webhook receiver за временным
+  HTTPS tunnel. Создан ровно один SumUp sandbox checkout на `100` евроцентов;
+  пользователь завершил официальный Test mode сценарий без передачи card data
+  в проект или журнал.
+- Receiver получил webhook. Существующий server-side verifier подтвердил
+  `PAID`, ровно одну связанную `SUCCESSFUL` transaction, совпадение checkout,
+  order, reference, merchant, суммы и EUR; локальные order/payment атомарно
+  перешли в `paid`. Duplicate replay вернул `duplicate`, не вызвал повторную
+  внешнюю verification и не изменил timestamps, `paidAt` или transaction.
+- Только после этого создана отдельная synthetic paid order/payment-пара для
+  Poster. Через существующий durable handoff и one-shot sandbox submitter
+  выполнен ровно один `POST incomingOrders.createIncomingOrder` без retry со
+  свежими spot `1`, product `1`, quantity `1`, price и prepayment по `1000`
+  евроцентов. Poster вернул строгий HTTP `200` и order ID `4`; локальные order
+  и handoff завершились как `submitted_to_poster`/`submitted`.
+- Выполнен ровно один последующий read-only lookup. Он нашёл строку по точному
+  correlation reference и безопасно показал top-level типы: числовые order ID,
+  status и spot ID, массив products, строковые `first_name`, phone и comment,
+  а также `last_name: null`. Raw response и значения contact-полей не
+  выводились и не сохранялись.
+- Текущий decoder не построил snapshot найденной строки, поэтому строгий
+  inspector вернул `unknown`. Точное соответствие order ID, spot, product,
+  quantity, price, synthetic names и phone этим запуском не подтверждено;
+  второй lookup не выполнялся. Единственное распознанное payment-подобное поле
+  `payment_method_id` имело тип `null`; сохранение payment type, prepayment sum
+  и currency по-прежнему не доказано.
+- Подтверждённого read-only способа проверить kitchen visibility в текущих
+  интерфейсах нет, поэтому кухня не проверялась и остаётся неподтверждённой.
+  Production и ChoiceQR не использовались. После успешных SumUp duplicate и
+  подтверждённого Poster HTTP-ответа временные tunnel/recovery/SQLite artifacts
+  удалены; незавершённого transport outcome для recovery не осталось.
+- Проверки: `npm test` — 210 тестов в 21 файле прошли;
+  `npm run typecheck`; `npm run build`; `git diff --check` — успешно.
+- Result: partial — SumUp webhook, server-side payment verification, local
+  `paid`, duplicate и один принятый Poster POST подтверждены; строгая проверка
+  полей Poster, prepayment и kitchen visibility не завершена.
+- Commit: текущий коммит, содержащий эту запись.
+
 ### Единый локальный backend-flow
 
 - Добавлен тонкий application-service, который использует существующие SumUp
