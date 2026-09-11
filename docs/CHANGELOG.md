@@ -5,6 +5,47 @@
 
 ## 11 сентября 2026
 
+### Локальный transport-neutral conversation use case
+
+- Добавлен детерминированный application-service для conversation-команд поверх
+  существующего `Order` и checkout-границы `LocalBackendFlowService`. Он не
+  интерпретирует свободный текст и получает menu snapshot, delivery fee,
+  conversation state, checkout creation, часы и создание order только через
+  injected dependencies.
+- Локальный flow показывает актуальный synthetic menu snapshot, добавляет и
+  удаляет позиции, меняет только положительное целое quantity, показывает
+  промежуточную корзину и точные суммы в EUR cents, собирает pickup либо
+  delivery и запрашивает адрес только для delivery.
+- Обязательные `first_name` и phone, а также delivery address проверяются до
+  checkout. Финальный review явно сообщает readiness и недостающие поля;
+  checkout link создаётся только для готового заказа через существующий local
+  backend use case.
+- In-memory state связывает conversation с единым order ID и возвращённым
+  checkout link; существующая checkout-граница сохраняет payment с тем же
+  order ID. Message ID и fingerprint команды обеспечивают безопасный replay
+  без повторного добавления позиции или второго checkout effect, а конфликтное
+  повторное использование message ID отклоняется.
+- Сообщение клиента об оплате оставляет order в `awaiting_payment` и возвращает
+  только ожидание verified payment. Новый conversation-service не имеет метода
+  webhook verification или Poster handoff; переход в `paid` и вызов Poster
+  остаются исключительно в существующем verified webhook flow.
+- Ошибки menu, delivery, checkout и state boundaries преобразуются в безопасные
+  локальные коды без вывода upstream details. Добавлены только synthetic
+  unit-тесты для menu/cart, add/remove, quantity и invalid quantity,
+  pickup/delivery, обязательных customer fields и адреса, точного расчёта,
+  checkout gating, payment-report guard и повторных сообщений.
+- Социальные сети, LLM/API provider, обычный `src/server.ts`, SumUp/Poster
+  network transports, ChoiceQR и production wiring не подключались. Внешний
+  I/O не выполнялся; Poster inspector, README, PLAN и архитектура не менялись.
+  In-memory conversation store предназначен только для текущего локального
+  этапа и не объявляется production durability.
+- Проверки: `npm test` — 221 тест в 22 файлах прошёл;
+  `npm run typecheck`; `npm run build`; `git diff --check` — успешно.
+- Result: complete — bounded локальная conversation state machine готова для
+  следующего слоя адаптера; transport channels, language interpretation и
+  production persistence остаются отдельными будущими этапами.
+- Commit: текущий коммит, содержащий эту запись.
+
 ### Дополнительный read-only аудит Poster incoming order `4`
 
 - Исходный Git status был чистым. Через существующий sandbox client выполнен
