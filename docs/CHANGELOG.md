@@ -5,6 +5,46 @@
 
 ## 11 сентября 2026
 
+### Дополнительный read-only аудит Poster incoming order `4`
+
+- Исходный Git status был чистым. Через существующий sandbox client выполнен
+  ровно один дополнительный `GET incomingOrders.getOwnIncomingOrders` без
+  retry; order `4` найден как объект. Другие Poster endpoints, POST, SumUp,
+  ChoiceQR, checkout, оплата, server, tunnel и production не использовались.
+- Без вывода или сохранения значений подтверждены имена и типы основных полей:
+  `incoming_order_id`, `status`, `spot_id`, `client_id`,
+  `client_address_id`, `service_mode`, `transaction_id` и `type` — number;
+  `products` — array; `products[].product_id`, `products[].price` и
+  `products[].incoming_order_id` — number; `products[].count` — string;
+  `first_name`, `phone`, `comment`, `delivery_time` и timestamps — string;
+  `last_name`, `address`, `delivery_price`, `payment_method_id`, `email` и
+  `table_id` — null.
+- Correlation comment присутствует и соответствует ожидаемой безопасной форме.
+  Значения contact-полей не сравнивались и не выводились. Наличие numeric
+  `service_mode`, null `address`/`delivery_price` и string `delivery_time` без
+  подтверждённого контракта значений не доказывает pickup либо delivery.
+- Распознаваемые payment-подобные поля ограничены
+  `payment_method_id: null` и числовым `transaction_id`. Отдельных
+  подтверждённых payment type, prepayment sum, order amount или currency нет;
+  поэтому endpoint не доказывает сохранение или применение предоплаты.
+- Полей kitchen/cook/production/workshop не найдено. Числовой `status` сам по
+  себе не доказывает появление заказа в кухонном интерфейсе; для этого нужен
+  другой подтверждённый официальный read-only endpoint либо ограниченный
+  просмотр Poster UI.
+- Текущий decoder не построил нормализованный snapshot строки. Наблюдённые
+  типы совместимы с большей частью decoder boundary, но единственный запуск не
+  сохранял raw values и потому не изолировал конкретный value-format guard.
+  Строгий inspector остаётся `unknown`: его критерий `confirmed` не ослаблялся,
+  а payment/currency/prepayment evidence в этом endpoint отсутствует. Второй
+  GET для дополнительной диагностики не выполнялся.
+- `docs/CHANGELOG.md` — единственный изменённый файл; код, tests, README, PLAN
+  и архитектура не менялись. Raw response/body, URL/query, token, phone, names,
+  comment value и customer data не выводились и не сохранялись.
+- Result: partial — структура order `4` и ограничения endpoint подтверждены;
+  exact spot/product/quantity/price/contact mapping, fulfilment semantics,
+  prepayment и kitchen visibility остаются неподтверждёнными.
+- Commit: текущий коммит, содержащий эту запись.
+
 ### Одна разрешённая SumUp → Poster sandbox E2E-проверка
 
 - Исходный Git status был чистым. Обязательный read-only preflight script одним
