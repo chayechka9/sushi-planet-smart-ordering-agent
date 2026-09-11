@@ -3,6 +3,43 @@
 Здесь хранится подробная техническая история завершённых изменений. README
 описывает проект и его границы, а PLAN — крупные этапы и их высокий уровень.
 
+## 11 сентября 2026
+
+### Локальная нормализация подтверждённой Poster incoming-order схемы
+
+- На основании отдельно завершённого read-only аудита добавлен чистый decoder
+  только для подтверждённых полей `incomingOrders.getOwnIncomingOrders`.
+  `incoming_order_id`, `spot_id` и `product_id` принимаются только как
+  положительные числовые safe integer; строковые идентификаторы отклоняются.
+  Количество товара принимается как положительное safe integer либо как
+  каноническая строка положительного целого; ноль, отрицательные и дробные
+  числа, пробелы, знаки, ведущие нули, exponent form, пустые и unsafe значения
+  отклоняются без частичного разбора.
+- `last_name: null` и отсутствующее поле безопасно нормализуются в отсутствие;
+  другие нестроковые значения отклоняются. Точное совпадение `first_name` и
+  `last_name` с исходным payload вынесено в отдельный обязательный guard и не
+  считается подтверждённым при несовпадении или отсутствии ожидаемой фамилии.
+- Decoder намеренно не выводит и не синтезирует currency, order amount,
+  payment type или prepayment sum: read-only endpoint не подтвердил такие
+  поля. Inspector по-прежнему требует все эти значения для `confirmed`, поэтому
+  snapshot из текущей raw-схемы без payment evidence остаётся `unknown`.
+- Добавлены только синтетические unit-тесты для number/string quantity,
+  number-only ID boundaries, `null`/отсутствующего `last_name`,
+  неподдерживаемого типа фамилии, всех перечисленных отрицательных
+  quantity-форматов, отсутствующего payment evidence и точных name/payment
+  mismatch guards.
+- Payload builder, transport, обычный `src/server.ts`, README, PLAN и
+  архитектура не менялись. `.env` и приватные sandbox-файлы не читались;
+  внешние Poster, SumUp или ChoiceQR requests, server, checkout и webhook не
+  запускались. Использованы только синтетические fixtures без реальных имён,
+  телефонов, customer/card data, credentials или raw response.
+- Проверки: `npm test` — 204 теста в 20 файлах прошли;
+  `npm run typecheck`; `npm run build`; `git diff --check` — успешно.
+- Result: complete — подтверждённые raw quantity/name форматы нормализуются
+  локально без ослабления inspector; Poster prepayment и kitchen visibility
+  остаются неподтверждёнными.
+- Commit: не создавался по прямому указанию пользователя.
+
 ## 10 сентября 2026
 
 ### Одна разрешённая Poster sandbox-попытка с verified prepayment

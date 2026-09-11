@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { createApp } from "../src/app.js";
 import { POSTER_CREATE_INCOMING_ORDER_ENDPOINT } from "../src/integrations/poster/dry-run.js";
 import {
+  decodePosterSandboxOrderSnapshot,
   PosterClientSandboxOrderLookup,
   PosterSandboxInspectionError,
   PosterSandboxInspector,
@@ -377,6 +378,174 @@ describe("Poster sandbox one-shot submitter", () => {
 });
 
 describe("Poster sandbox read-only inspector", () => {
+  function createRawRow(
+    overrides: Record<string, unknown> = {},
+  ): Record<string, unknown> {
+    return {
+      incoming_order_id: 3,
+      comment: correlationId,
+      status: 0,
+      spot_id: 1,
+      first_name: syntheticFirstName,
+      last_name: "Synthetic",
+      phone: syntheticPhone,
+      products: [{ product_id: 1, count: 1, price: 1_000 }],
+      ...overrides,
+    };
+  }
+
+  it.each([1, "1", 42, "42"])(
+    "decodes a strict positive quantity %j without inventing payment evidence",
+    (count) => {
+      expect(
+        decodePosterSandboxOrderSnapshot(
+          [createRawRow({
+            products: [{ product_id: 1, count, price: 1_000 }],
+          })],
+          correlationId,
+        ),
+      ).toEqual({
+        posterOrderId: "3",
+        correlationId,
+        status: 0,
+        spotId: 1,
+        products: [{ productId: 1, quantity: Number(count), priceCents: 1_000 }],
+        firstName: syntheticFirstName,
+        lastName: "Synthetic",
+        phone: syntheticPhone,
+        comment: correlationId,
+      });
+    },
+  );
+
+  it.each([
+    [
+      "product_id",
+      createRawRow({
+        products: [{ product_id: "1", count: 1, price: 1_000 }],
+      }),
+    ],
+    ["incoming_order_id", createRawRow({ incoming_order_id: "3" })],
+    ["spot_id", createRawRow({ spot_id: "1" })],
+  ])("rejects a string %s", (_field, row) => {
+    expect(
+      decodePosterSandboxOrderSnapshot([row], correlationId),
+    ).toBeUndefined();
+  });
+
+  it.each([
+    0,
+    -1,
+    1.5,
+    Number.NaN,
+    Number.POSITIVE_INFINITY,
+    "",
+    "0",
+    "-1",
+    "1.0",
+    "01",
+    "+1",
+    " 1",
+    "1 ",
+    "1e0",
+    "9007199254740992",
+  ])("rejects an invalid or ambiguous quantity %j", (count) => {
+    expect(
+      decodePosterSandboxOrderSnapshot(
+        [createRawRow({
+          products: [{ product_id: 1, count, price: 1_000 }],
+        })],
+        correlationId,
+      ),
+    ).toBeUndefined();
+  });
+
+  it.each([
+    ["null", null],
+    ["absent", undefined],
+  ])("normalizes a %s last_name to absence", (_name, lastName) => {
+    const row = createRawRow({ last_name: lastName });
+    if (lastName === undefined) {
+      delete row.last_name;
+    }
+
+    expect(
+      decodePosterSandboxOrderSnapshot([row], correlationId),
+    ).toEqual({
+      posterOrderId: "3",
+      correlationId,
+      status: 0,
+      spotId: 1,
+      products: [{ productId: 1, quantity: 1, priceCents: 1_000 }],
+      firstName: syntheticFirstName,
+      phone: syntheticPhone,
+      comment: correlationId,
+    });
+  });
+
+  it("rejects an unsupported last_name type", () => {
+    expect(
+      decodePosterSandboxOrderSnapshot(
+        [createRawRow({ last_name: 1 })],
+        correlationId,
+      ),
+    ).toBeUndefined();
+  });
+
+  it("keeps a decoded raw row unknown when payment evidence is absent", async () => {
+    const snapshot = decodePosterSandboxOrderSnapshot(
+      [createRawRow()],
+      correlationId,
+    );
+    const lookup: PosterSandboxReadOnlyOrderLookup = {
+      findByCorrelation: vi.fn(async () => snapshot),
+    };
+    const submission = createSubmission();
+    const inspector = new PosterSandboxInspector({
+      expectedOrderId: orderId,
+      expectedSubmission: submission,
+      expectedStatus: 0,
+      expectedPosterOrderId: "3",
+      lookup,
+    });
+
+    await expect(
+      inspector.inspectSubmission(orderId, submission),
+    ).resolves.toEqual({ outcome: "unknown" });
+  });
+
+  it("does not confirm a normalized absent last name against an expected name", async () => {
+    const decoded = decodePosterSandboxOrderSnapshot(
+      [createRawRow({ last_name: null })],
+      correlationId,
+    );
+    if (decoded === undefined) {
+      throw new Error("Expected the synthetic raw row to decode");
+    }
+    const snapshot: PosterSandboxOrderSnapshot = {
+      ...decoded,
+      currency: "EUR",
+      amountCents: 1_000,
+      paymentType: 1,
+      prepaymentCents: 1_000,
+    };
+    const lookup: PosterSandboxReadOnlyOrderLookup = {
+      findByCorrelation: vi.fn(async () => snapshot),
+    };
+    const submission = createSubmission();
+    const inspector = new PosterSandboxInspector({
+      expectedOrderId: orderId,
+      expectedSubmission: submission,
+      expectedStatus: 0,
+      expectedPosterOrderId: "3",
+      lookup,
+    });
+
+    await expect(
+      inspector.inspectSubmission(orderId, submission),
+    ).resolves.toEqual({ outcome: "unknown" });
+  });
+
   it("confirms only a fully matching normalized read result", async () => {
     const lookup: PosterSandboxReadOnlyOrderLookup = {
       findByCorrelation: vi.fn(async () => createSnapshot()),
@@ -429,6 +598,9 @@ describe("Poster sandbox read-only inspector", () => {
     ["quantity", { products: [{ productId: 1, quantity: 2, priceCents: 1_000 }] }],
     ["price", { products: [{ productId: 1, quantity: 1, priceCents: 999 }] }],
     ["prepayment", { prepaymentCents: 999 }],
+    ["payment type", { paymentType: 2 }],
+    ["first name", { firstName: "Different Synthetic" }],
+    ["last name", { lastName: "Different Synthetic" }],
     ["extra product", {
       products: [
         { productId: 1, quantity: 1, priceCents: 1_000 },
