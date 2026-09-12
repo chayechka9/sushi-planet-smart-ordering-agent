@@ -77,7 +77,9 @@ Instagram / WhatsApp / Facebook / Telegram
   `--confirm-one-request`; он создаёт удаляемую временную SQLite, делает один
   вызов conversation service и допускает не более одного provider POST без
   retry. Transport, adapter, composition и runner не подключены к обычному
-  `server.ts`; реальный OpenAI request и сам smoke-runner ещё не выполнялись.
+  `server.ts`. Один отдельно разрешённый direct smoke-run через этот CLI
+  исторически завершился безопасным `success` для synthetic команды
+  `show_menu`; это не является ordinary-server или production wiring.
 
 Обычный `server.ts` запускает только приложение с health route: он не включает
 SQLite, checkout/verifier, webhook или AI layer автоматически. Sandbox-инструменты
@@ -95,6 +97,10 @@ SQLite, checkout/verifier, webhook или AI layer автоматически. S
   100-cent SumUp sandbox flow: реальный webhook, server-side verification,
   checkout `PAID`, ровно одна `SUCCESSFUL` transaction, atomic local `paid` и
   duplicate replay без повторной верификации или изменения состояния.
+- Один controlled direct OpenAI smoke-run через отдельный CLI обработал только
+  synthetic сообщение `покажи меню`: safe summary сообщил `success`, команду
+  `show_menu`, выполненную provider attempt и exit code `0`. Git state после
+  запуска не изменился; checkout, payment, SumUp и Poster не использовались.
 
 Это история проверок, а не подтверждение актуальности доступов сегодня.
 Подробности и коммиты сохранены в `docs/CHANGELOG.md`.
@@ -109,9 +115,10 @@ SQLite, checkout/verifier, webhook или AI layer автоматически. S
 
 Provider-neutral orchestration boundary и локальный provider-specific OpenAI
 adapter с HTTP transport и disabled-by-default runtime composition для команд
-и отдельным controlled smoke-runner уже реализованы; первый отдельно
-разрешённый запуск runner/provider request, реальная свободная языковая
-семантика, социальные каналы, передача сотруднику и полноценный журнал событий
+и отдельным controlled smoke-runner уже реализованы; один direct synthetic
+smoke-run исторически подтверждён. Обычный `server.ts`, channel/production
+wiring, языковая семантика за пределами единственного `покажи меню`, реальные
+клиенты, заказной сценарий, передача сотруднику и полноценный журнал событий
 ещё не подтверждены или не реализованы.
 Проект не готов к пилоту.
 

@@ -5,6 +5,36 @@
 
 ## 12 сентября 2026
 
+### Успешно выполнен первый controlled direct OpenAI smoke-run
+
+- После отдельного явного разрешения ровно один раз выполнена команда
+  `npm run openai:smoke -- --confirm-one-request`. Использовались только
+  существующий отдельный CLI runner и его фиксированная synthetic conversation
+  с сообщением `покажи меню`; automatic retry или второй запуск отсутствовали.
+- Safe summary runner: `status: success`, `commandType: show_menu`,
+  `providerRequestAttempted: true`; process завершился с exit code `0`. После
+  запуска git status не изменился.
+- Checkout, payment, SumUp и Poster не использовались. Обычный `src/server.ts`,
+  routes, channel adapters и production wiring не запускались и не
+  подключались.
+- API key, `.env`, Authorization header, request/response bodies, provider
+  identifiers, raw response и другие secrets не выводились и в документацию не
+  добавлялись.
+- Confirmed: один historical direct provider smoke-run через изолированный CLI
+  успешно преобразовал единственное synthetic `покажи меню` в allowlisted
+  `show_menu`. Это отдельно от прежних local synthetic tests.
+- Unconfirmed: ordinary `src/server.ts`, социальные каналы, production wiring,
+  реальные клиенты, checkout/payment, Poster и полный заказной сценарий. Этот
+  isolated smoke-run не подтверждает готовность к pilot или production.
+- В рамках этой documentation task OpenAI smoke-run не повторялся; внешние
+  запросы к OpenAI, SumUp, Poster и другим интеграциям проекта не выполнялись.
+  `PLAN.md`, код, tests, dependencies и configuration не менялись.
+- Проверки: `git diff --check`; exact staged diff и scope/security review —
+  успешно.
+- Result: complete — historical evidence первого controlled OpenAI smoke-run
+  зафиксирован без расширения доказанного scope.
+- Commit: текущий коммит, содержащий эту запись.
+
 ### Исправлена загрузка локального environment в OpenAI smoke CLI
 
 - Публичный wrapper `src/scripts/run-openai-smoke.ts` теперь первым импортирует
