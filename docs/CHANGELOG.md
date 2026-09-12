@@ -5,6 +5,28 @@
 
 ## 12 сентября 2026
 
+### Исправлена загрузка локального environment в OpenAI smoke CLI
+
+- Публичный wrapper `src/scripts/run-openai-smoke.ts` теперь первым импортирует
+  `dotenv/config`, следуя уже используемой в `src/server.ts` и внешних scripts
+  конвенции. Поэтому будущий отдельно разрешённый запуск `openai:smoke` сможет
+  получить локальные `OPENAI_RUNTIME_ENABLED` и `OPENAI_API_KEY` из `.env` до
+  вызова существующего runner.
+- Runtime gate, обязательный `--confirm-one-request`, synthetic данные,
+  временная SQLite с cleanup в `finally`, one-request limit, отсутствие retry и
+  безопасный summary не менялись. Runner не подключался к server, routes,
+  каналам, SumUp, Poster, ChoiceQR или production wiring.
+- Существующий synthetic test статически читает wrapper и подтверждает точный
+  side-effect import `dotenv/config`; wrapper, runner и реальная сеть тестом не
+  запускаются.
+- `.env` и `.sumup-e2e` не открывались, не выводились и не изменялись. Реальный
+  `openai:smoke`, OpenAI request и другие внешние запросы не выполнялись.
+- Проверки: `npm test` — 289 тестов в 29 файлах прошли;
+  `npm run typecheck`; `npm run build`; `git diff --check` — успешно.
+- Result: complete — launch-wiring defect исправлен без изменения остальных
+  safety boundaries.
+- Commit: текущий коммит, содержащий эту запись.
+
 ### Добавлен controlled OpenAI smoke-runner без фактического запуска
 
 - Добавлены отдельные `src/scripts/run-openai-smoke.ts` и npm-команда

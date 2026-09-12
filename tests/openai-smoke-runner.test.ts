@@ -193,6 +193,7 @@ describe("controlled OpenAI smoke runner", () => {
     expect(packageJson.scripts["openai:smoke"]).toBe(
       "tsx src/scripts/run-openai-smoke.ts",
     );
+    expect(entrypoint).toMatch(/^import "dotenv\/config";/);
     expect(server).not.toContain("openai");
     for (const source of [entrypoint, runner]) {
       expect(source).not.toContain("process-sumup-webhook");

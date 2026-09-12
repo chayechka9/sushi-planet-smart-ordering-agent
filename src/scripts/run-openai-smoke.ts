@@ -1,3 +1,5 @@
+import "dotenv/config";
+
 import { runOpenAISmoke } from "./openai-smoke-runner.js";
 
 const safeFallback = {
