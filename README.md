@@ -47,6 +47,9 @@ Instagram / WhatsApp / Facebook / Telegram
   переход в `paid` после проверки данных платежа и защита от повторной
   обработки, в том числе после повторного открытия базы; durable Poster
   handoff marker блокирует повторную отправку после claim или перезапуска.
+  AI-created conversation history хранит fingerprint нормализованного
+  исходного текста, но не raw message, вместе с безопасно декодируемой командой
+  и результатом.
 - SumUp Hosted Checkout builder/client, HTTP-verifier checkout и transaction,
   локальный webhook-flow, отдельные sandbox E2E/recovery-инструменты.
 - Read-only Poster client, prepaid и минимальный диагностический payload/dry-run,
@@ -55,12 +58,17 @@ Instagram / WhatsApp / Facebook / Telegram
   серверу; raw incoming-order decoder и production transport отсутствуют.
 - Provider-neutral AI orchestration boundary: injected interpreter получает
   ограниченный контекст и возвращает только allowlisted command либо
-  clarification; команда передаётся существующему deterministic conversation
-  core. Реальный network transport и каналы не подключены.
+  clarification; известные identity mismatch, duplicate и message conflict
+  разрешаются по SQLite state до interpreter, а новые команды передаются
+  существующему deterministic conversation core. Реальный network transport и
+  каналы не подключены.
 - Provider-specific OpenAI adapter реализует этот interpreter через injected
   client/transport; `OPENAI_API_KEY` читается только локальной конфигурацией,
-  defaults — `gpt-5.6-luna` и reasoning `high`. Adapter не подключён к
-  обычному `server.ts` и не выполняет внешние запросы сам по себе.
+  defaults — `gpt-5.6-luna` и reasoning `high`. Strict schema требует все
+  поля, использует nullable значения для неактуальных аргументов и проходит
+  рекурсивный локальный contract check; request всегда задаёт `store: false`.
+  Adapter не подключён к обычному `server.ts` и не выполняет внешние запросы
+  сам по себе.
 
 Обычный `server.ts` запускает только приложение с health route: он не включает
 SQLite, checkout/verifier, webhook или AI layer автоматически. Sandbox-инструменты
@@ -74,20 +82,21 @@ SQLite, checkout/verifier, webhook или AI layer автоматически. S
   в успешном запросе не передавались; кухня не проверена.
 - SumUp Get Merchant подтвердил IE/EUR sandbox. Создание Hosted Checkout
   подтверждено ответами `201` с исходным статусом `PENDING`.
-- В последней описанной E2E-попытке пользователь сообщил о завершении страницы
-  Test mode, но сервер не зарегистрировал webhook, а локальные order/payment
-  остались `awaiting_payment`/`pending`. Серверной проверки оплаты не было.
+- После более ранней незавершённой попытки был зафиксирован один успешный
+  100-cent SumUp sandbox flow: реальный webhook, server-side verification,
+  checkout `PAID`, ровно одна `SUCCESSFUL` transaction, atomic local `paid` и
+  duplicate replay без повторной верификации или изменения состояния.
 
 Это история проверок, а не подтверждение актуальности доступов сегодня.
 Подробности и коммиты сохранены в `docs/CHANGELOG.md`.
 
 ### Всё ещё не подтверждено
 
-Успешная серверная верификация оплаты, доставка webhook, переход в `paid` и
-duplicate в реальном sandbox, приём предоплаты Poster, появление заказа у кухни
-и полный сквозной сценарий остаются неподтверждёнными. Причины отсутствия
-webhook и последнего Poster `422` неизвестны. Данные старой E2E-попытки были
-удалены; новые recovery-инструменты не восстанавливают удалённую попытку.
+Этот успешный SumUp flow является историческим доказательством, а не
+подтверждением нового текущего запуска или актуальности доступа. Точное
+сохранение Poster prepayment и остальных полей, появление заказа у кухни и
+полный сквозной сценарий до Poster остаются неподтверждёнными. Причины более
+раннего отсутствия webhook и Poster `422` неизвестны.
 
 Provider-neutral orchestration boundary и локальный provider-specific OpenAI
 adapter для команд уже реализованы; реальный network transport, свободная
@@ -198,7 +207,8 @@ ChoiceQR остаётся независимым существующим кан
 - завершение проверки оплаченного заказа через Poster API, его полей и кухни;
 - подтверждение актуальности ранее проверенного SumUp sandbox-доступа перед
   следующей отдельно разрешённой внешней проверкой;
-- подтверждение сквозного сценария оплаты через webhook и серверную проверку;
+- повторная актуальная проверка исторически успешного SumUp sandbox flow перед
+  пилотом;
 - отдельный доступ к реальному Poster Sushi Planet от Александра или владельца
   аккаунта перед production-подключением;
 - доступ к Meta Business с нужными разрешениями;

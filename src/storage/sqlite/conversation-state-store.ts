@@ -1,20 +1,21 @@
 import { DatabaseSync } from "node:sqlite";
 
-import type {
-  ConversationAgentResponse,
-  ConversationBackendStatus,
-  ConversationCartItemView,
-  ConversationCheckoutState,
-  ConversationCustomerState,
-  ConversationIdentity,
-  ConversationMissingField,
-  ConversationOrderSubmissionStatus,
-  ConversationOrderView,
-  ConversationPaymentStatus,
-  ConversationStatus,
-  LocalConversationState,
-  LocalConversationStateStore,
-  ProcessedConversationMessage,
+import {
+  parseConversationAgentCommand,
+  type ConversationAgentResponse,
+  type ConversationBackendStatus,
+  type ConversationCartItemView,
+  type ConversationCheckoutState,
+  type ConversationCustomerState,
+  type ConversationIdentity,
+  type ConversationMissingField,
+  type ConversationOrderSubmissionStatus,
+  type ConversationOrderView,
+  type ConversationPaymentStatus,
+  type ConversationStatus,
+  type LocalConversationState,
+  type LocalConversationStateStore,
+  type ProcessedConversationMessage,
 } from "../../application/local-conversation-agent.js";
 import {
   calculateOrderTotals,
@@ -282,6 +283,12 @@ function serializeConversation(state: LocalConversationState): string {
     processedMessages: state.processedMessages.map((message) => ({
       messageId: message.messageId,
       commandFingerprint: message.commandFingerprint,
+      ...(message.sourceMessageFingerprint === undefined
+        ? {}
+        : { sourceMessageFingerprint: message.sourceMessageFingerprint }),
+      ...(message.command === undefined
+        ? {}
+        : { command: structuredClone(message.command) }),
       response: cloneResponse(message.response),
     })),
     createdAt: state.createdAt,
@@ -640,12 +647,40 @@ function readProcessedMessages(value: unknown): ProcessedConversationMessage[] {
         "Command fingerprint is invalid",
       );
     }
+    const sourceMessageFingerprint =
+      record.sourceMessageFingerprint === undefined
+        ? undefined
+        : requireFingerprint(
+            record.sourceMessageFingerprint,
+            "Source message fingerprint",
+          );
+    const command =
+      record.command === undefined
+        ? undefined
+        : parseConversationAgentCommand(record.command);
+    if (record.command !== undefined && command === undefined) {
+      throw new SqliteConversationStateStoreError(
+        "Processed message command is invalid",
+      );
+    }
     return {
       messageId: requireString(record.messageId, "Processed message ID"),
       commandFingerprint: fingerprint,
+      ...(sourceMessageFingerprint === undefined
+        ? {}
+        : { sourceMessageFingerprint }),
+      ...(command === undefined ? {} : { command }),
       response: readResponse(record.response),
     };
   });
+}
+
+function requireFingerprint(value: unknown, label: string): string {
+  const fingerprint = requireString(value, label);
+  if (!/^[0-9a-f]{64}$/.test(fingerprint)) {
+    throw new SqliteConversationStateStoreError(`${label} is invalid`);
+  }
+  return fingerprint;
 }
 
 function readResponse(value: unknown): ConversationAgentResponse {

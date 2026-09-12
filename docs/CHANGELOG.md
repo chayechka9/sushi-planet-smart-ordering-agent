@@ -5,6 +5,50 @@
 
 ## 12 сентября 2026
 
+### Устранены подтверждённые замечания AI-layer аудита
+
+- OpenAI Responses strict schema теперь объявляет `additionalProperties:
+  false` для каждого object node, включает каждое property в `required` и
+  представляет неактуальные command arguments, `command` или `reason` через
+  совместимые nullable-типы. Strict envelope нормализуется в существующий
+  `ConversationAgentCommand` или `needs_clarification`, после чего по-прежнему
+  проходит provider-neutral runtime allowlist; extra и authoritative price,
+  total, availability, delivery fee, payment/order status и Poster fields
+  отклоняются.
+- Добавлен выполняемый локально recursive schema-contract guard. Он проверяет
+  object nodes, exact required/property sets, `additionalProperties: false` и
+  nullable type/union shape; synthetic tests также доказывают отказ на
+  нарушенных schema fixtures. Реальный OpenAI API не вызывался.
+- Responses-shaped request boundary расширен literal-полем `store: false`;
+  тест фиксирует его обязательное значение вместе с прежними model/reasoning и
+  safe-context ограничениями. Request body, API key, customer text и provider
+  response не логируются.
+- AI orchestration до interpreter проверяет identity и существующий message ID.
+  Для новых AI-created processed messages сохраняются только SHA-256 fingerprint
+  NFC/whitespace-нормализованного текста, canonical command и уже существующий
+  deterministic response; raw message text не сохраняется. Совпадающий
+  duplicate возвращает cached result, другой текст даёт `message_conflict`, а
+  другая identity — `invalid_identity`, во всех случаях без interpreter call.
+- SQLite state JSON сохраняет новые optional processed-message fields без новой
+  table migration; decoder остаётся совместимым со старыми записями, где этих
+  полей нет. Tests подтверждают duplicate/conflict/identity guards после
+  закрытия и повторного открытия SQLite; существующая command-fingerprint
+  защита deterministic conversation core сохранена.
+- README и `docs/ARCHITECTURE.md` исправляют доказанный drift: один успешный
+  100-cent SumUp sandbox webhook → server verification → `PAID` → одна
+  `SUCCESSFUL` transaction → local `paid` → duplicate указан только как
+  историческое доказательство. Новый текущий запуск, Poster prepayment/точное
+  сохранение всех полей и kitchen visibility остаются неподтверждёнными.
+- `.env` и `.sumup-e2e` не открывались; secrets, customer/card data и новые
+  зависимости не добавлялись. OpenAI API, SumUp, Poster, ChoiceQR, production
+  и social requests не выполнялись; `src/server.ts` не менялся.
+- Проверки: `npm test` — 270 тестов в 26 файлах прошли;
+  `npm run typecheck`; `npm run build`; `git diff --check` — успешно.
+- Result: complete — четыре подтверждённых замечания исправлены локально;
+  реальный OpenAI HTTP transport и новый SumUp E2E остаются отдельными явно
+  разрешаемыми этапами.
+- Commit: текущий коммит, содержащий эту запись.
+
 ### SumUp sandbox E2E остановлен на local configuration gate
 
 - Перед внешними действиями подтверждены чистый `main`, исходный HEAD

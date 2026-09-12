@@ -145,11 +145,14 @@ export interface HandleConversationCommandInput {
   messageId: string;
   command: ConversationAgentCommand;
   identity?: ConversationIdentity;
+  sourceMessageFingerprint?: string;
 }
 
 export interface ProcessedConversationMessage {
   messageId: string;
   commandFingerprint: string;
+  sourceMessageFingerprint?: string;
+  command?: ConversationAgentCommand;
   response: ConversationAgentResponse;
 }
 
@@ -253,6 +256,10 @@ export class LocalConversationAgentService {
     const conversationId = requireIdentity(input.conversationId);
     const messageId = requireIdentity(input.messageId);
     const commandFingerprint = fingerprintCommand(input.command);
+    const processedCommand = parseConversationAgentCommand(input.command);
+    const sourceMessageFingerprint = normalizeOptionalFingerprint(
+      input.sourceMessageFingerprint,
+    );
     const existing = this.loadState(conversationId);
     const identity = normalizeConversationIdentity(
       input.identity ?? { channel: "local", userId: conversationId },
@@ -269,7 +276,12 @@ export class LocalConversationAgentService {
     );
 
     if (prior !== undefined) {
-      if (prior.commandFingerprint !== commandFingerprint) {
+      if (
+        prior.commandFingerprint !== commandFingerprint ||
+        (sourceMessageFingerprint !== undefined &&
+          prior.sourceMessageFingerprint !== undefined &&
+          prior.sourceMessageFingerprint !== sourceMessageFingerprint)
+      ) {
         throw new ConversationAgentError("message_conflict");
       }
       return prior.response;
@@ -282,7 +294,17 @@ export class LocalConversationAgentService {
       ...result.state,
       processedMessages: [
         ...result.state.processedMessages,
-        { messageId, commandFingerprint, response: result.response },
+        {
+          messageId,
+          commandFingerprint,
+          ...(sourceMessageFingerprint === undefined
+            ? {}
+            : { sourceMessageFingerprint }),
+          ...(processedCommand === undefined
+            ? {}
+            : { command: processedCommand }),
+          response: result.response,
+        },
       ],
       updatedAt,
     };
@@ -772,6 +794,142 @@ function fingerprintCommand(command: ConversationAgentCommand): string {
   return createHash("sha256")
     .update(serialized, "utf8")
     .digest("hex");
+}
+
+function normalizeOptionalFingerprint(
+  value: string | undefined,
+): string | undefined {
+  if (value === undefined) return undefined;
+  if (!/^[0-9a-f]{64}$/.test(value)) {
+    throw new ConversationAgentError("state_unavailable");
+  }
+  return value;
+}
+
+export function parseConversationAgentCommand(
+  value: unknown,
+): ConversationAgentCommand | undefined {
+  if (!isRecord(value) || typeof value.type !== "string") return undefined;
+
+  switch (value.type) {
+    case "show_menu":
+    case "show_cart":
+    case "choose_pickup":
+    case "choose_delivery":
+    case "review_order":
+    case "prepare_checkout":
+    case "customer_reports_payment":
+      return hasExactKeys(value, ["type"])
+        ? { type: value.type }
+        : undefined;
+    case "add_item": {
+      if (
+        !hasNoUnexpectedKeys(value, ["type", "menuItemId", "quantity"]) ||
+        !isNonEmptyString(value.menuItemId)
+      ) {
+        return undefined;
+      }
+      if (value.quantity !== undefined && !isPositiveInteger(value.quantity)) {
+        return undefined;
+      }
+      return {
+        type: "add_item",
+        menuItemId: value.menuItemId.trim(),
+        ...(value.quantity === undefined ? {} : { quantity: value.quantity }),
+      };
+    }
+    case "remove_item":
+      return hasExactKeys(value, ["type", "menuItemId"]) &&
+        isNonEmptyString(value.menuItemId)
+        ? { type: "remove_item", menuItemId: value.menuItemId.trim() }
+        : undefined;
+    case "set_quantity":
+      return hasExactKeys(value, ["type", "menuItemId", "quantity"]) &&
+        isNonEmptyString(value.menuItemId) &&
+        isPositiveInteger(value.quantity)
+        ? {
+            type: "set_quantity",
+            menuItemId: value.menuItemId.trim(),
+            quantity: value.quantity,
+          }
+        : undefined;
+    case "set_customer":
+      if (
+        !hasNoUnexpectedKeys(value, ["type", "firstName", "lastName", "phone"]) ||
+        !optionalNonEmptyString(value.firstName) ||
+        !optionalNonEmptyString(value.lastName) ||
+        !optionalNonEmptyString(value.phone)
+      ) {
+        return undefined;
+      }
+      return {
+        type: "set_customer",
+        ...(value.firstName === undefined
+          ? {}
+          : { firstName: value.firstName.trim() }),
+        ...(value.lastName === undefined
+          ? {}
+          : { lastName: value.lastName.trim() }),
+        ...(value.phone === undefined ? {} : { phone: value.phone.trim() }),
+      };
+    case "set_delivery_address": {
+      if (
+        !hasExactKeys(value, ["type", "address"]) ||
+        !isRecord(value.address) ||
+        !hasExactKeys(value.address, ["line1", "city", "postalCode"]) ||
+        !isNonEmptyString(value.address.line1) ||
+        !isNonEmptyString(value.address.city) ||
+        !isNonEmptyString(value.address.postalCode)
+      ) {
+        return undefined;
+      }
+      return {
+        type: "set_delivery_address",
+        address: {
+          line1: value.address.line1.trim(),
+          city: value.address.city.trim(),
+          postalCode: value.address.postalCode.trim(),
+        },
+      };
+    }
+    default:
+      return undefined;
+  }
+}
+
+function hasExactKeys(
+  value: Record<string, unknown>,
+  allowedKeys: readonly string[],
+): boolean {
+  const allowed = new Set(allowedKeys);
+  return (
+    Object.keys(value).length === allowed.size &&
+    Object.keys(value).every((key) => allowed.has(key))
+  );
+}
+
+function hasNoUnexpectedKeys(
+  value: Record<string, unknown>,
+  allowedKeys: readonly string[],
+): boolean {
+  const allowed = new Set(allowedKeys);
+  return Object.keys(value).every((key) => allowed.has(key));
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+function optionalNonEmptyString(value: unknown): value is string | undefined {
+  return value === undefined || isNonEmptyString(value);
+}
+
+function isPositiveInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0;
 }
 
 function sortValue(value: unknown): unknown {

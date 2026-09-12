@@ -47,18 +47,22 @@ afterEach(() => {
 
 function createHarness(
   interpreter: AIConversationInterpreter,
+  existingDatabasePath?: string,
 ): {
   service: AIConversationLayerService;
   store: SqliteConversationStateStore;
+  databasePath: string;
   prepareCheckoutLink: ReturnType<typeof vi.fn>;
   verifyPayment: ReturnType<typeof vi.fn>;
   submitPoster: ReturnType<typeof vi.fn>;
 } {
-  const directory = mkdtempSync(join(tmpdir(), "sushi-planet-ai-layer-"));
-  temporaryDirectories.push(directory);
-  const store = new SqliteConversationStateStore(
-    join(directory, "conversation.sqlite"),
-  );
+  let databasePath = existingDatabasePath;
+  if (databasePath === undefined) {
+    const directory = mkdtempSync(join(tmpdir(), "sushi-planet-ai-layer-"));
+    temporaryDirectories.push(directory);
+    databasePath = join(directory, "conversation.sqlite");
+  }
+  const store = new SqliteConversationStateStore(databasePath);
   stores.push(store);
 
   const prepareCheckoutLink = vi.fn(async ({ order }: { order: { id: string } }) => ({
@@ -100,6 +104,7 @@ function createHarness(
       stateStore: store,
     }),
     store,
+    databasePath,
     prepareCheckoutLink,
     verifyPayment,
     submitPoster,
@@ -244,7 +249,7 @@ describe("provider-neutral AI conversation layer", () => {
     expect(harness.prepareCheckoutLink).not.toHaveBeenCalled();
   });
 
-  it("keeps duplicate message protection in the deterministic core", async () => {
+  it("returns a duplicate result before calling the interpreter again", async () => {
     const interpreter = fixedInterpreter({
       type: "add_item",
       menuItemId: "synthetic-roll",
@@ -252,9 +257,10 @@ describe("provider-neutral AI conversation layer", () => {
     const harness = createHarness(interpreter);
 
     const first = await harness.service.handle(input("добавь ролл"));
-    const duplicate = await harness.service.handle(input("добавь ролл"));
+    const duplicate = await harness.service.handle(input("  добавь   ролл  "));
 
     expect(duplicate).toEqual(first);
+    expect(interpreter.interpret).toHaveBeenCalledOnce();
     expect(
       harness.store.findByConversationId("synthetic-conversation")?.order.items,
     ).toEqual([
@@ -267,7 +273,7 @@ describe("provider-neutral AI conversation layer", () => {
     ]);
   });
 
-  it("returns message conflict when the same message ID produces a different command", async () => {
+  it("returns message conflict for different source text before interpreting again", async () => {
     const interpreter: AIConversationInterpreter = {
       interpret: vi.fn(async (_context, text) => ({
         kind: "command" as const,
@@ -287,6 +293,7 @@ describe("provider-neutral AI conversation layer", () => {
       kind: "error",
       code: "message_conflict",
     });
+    expect(interpreter.interpret).toHaveBeenCalledOnce();
     expect(
       harness.store.findByConversationId("synthetic-conversation")?.order.items,
     ).toHaveLength(1);
@@ -299,18 +306,66 @@ describe("provider-neutral AI conversation layer", () => {
     const interpreter = fixedInterpreter({ type: "show_cart" });
     const harness = createHarness(interpreter);
     await harness.service.handle(input("добавь ролл", { messageId: "first" }));
+    vi.mocked(interpreter.interpret).mockClear();
 
     const result = await harness.service.handle(
       input("покажи корзину", { ...identity, messageId: "second" }),
     );
 
     expect(result).toEqual({ kind: "error", code: "invalid_identity" });
+    expect(interpreter.interpret).not.toHaveBeenCalled();
     expect(
       harness.store.findByConversationId("synthetic-conversation")?.identity,
     ).toEqual({
       channel: "synthetic-channel",
       userId: "synthetic-user",
     });
+  });
+
+  it("keeps AI duplicate, conflict and no-provider behavior after SQLite reopen", async () => {
+    const firstInterpreter = fixedInterpreter({
+      type: "add_item",
+      menuItemId: "synthetic-roll",
+    });
+    const firstHarness = createHarness(firstInterpreter);
+    const first = await firstHarness.service.handle(input("добавь ролл"));
+    const stored = firstHarness.store.findByConversationId(
+      "synthetic-conversation",
+    );
+    expect(stored?.processedMessages[0]).toMatchObject({
+      messageId: "synthetic-message",
+      command: { type: "add_item", menuItemId: "synthetic-roll" },
+      sourceMessageFingerprint: expect.stringMatching(/^[0-9a-f]{64}$/),
+    });
+    expect(JSON.stringify(stored?.processedMessages)).not.toContain(
+      "добавь ролл",
+    );
+
+    firstHarness.store.close();
+    const reopenedInterpreter = fixedInterpreter({ type: "show_cart" });
+    const reopened = createHarness(
+      reopenedInterpreter,
+      firstHarness.databasePath,
+    );
+
+    await expect(
+      reopened.service.handle(input("добавь ролл")),
+    ).resolves.toEqual(first);
+    await expect(
+      reopened.service.handle(input("другой текст")),
+    ).resolves.toEqual({ kind: "error", code: "message_conflict" });
+    await expect(
+      reopened.service.handle(
+        input("покажи корзину", {
+          messageId: "other-message",
+          userId: "other-user",
+        }),
+      ),
+    ).resolves.toEqual({ kind: "error", code: "invalid_identity" });
+    expect(reopenedInterpreter.interpret).not.toHaveBeenCalled();
+    expect(reopened.prepareCheckoutLink).not.toHaveBeenCalled();
+    expect(reopened.verifyPayment).not.toHaveBeenCalled();
+    expect(reopened.submitPoster).not.toHaveBeenCalled();
   });
 
   it("does not treat 'я оплатил' as payment and cannot call payment or Poster boundaries", async () => {

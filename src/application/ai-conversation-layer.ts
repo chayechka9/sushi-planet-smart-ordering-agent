@@ -1,5 +1,8 @@
+import { createHash } from "node:crypto";
+
 import {
   ConversationAgentError,
+  parseConversationAgentCommand,
   type ConversationAgentCommand,
   type ConversationAgentResponse,
   type ConversationStatus,
@@ -118,10 +121,45 @@ export class AIConversationLayerService {
       return { kind: "error", code: "invalid_input" };
     }
 
-    const context = this.readSafeContext(normalized);
-    if (context === undefined) {
+    const sourceMessageFingerprint = fingerprintSourceMessage(normalized.text);
+    let state: LocalConversationState | undefined;
+    try {
+      state = this.dependencies.stateStore.findByConversationId(
+        normalized.conversationId,
+      );
+    } catch {
       return { kind: "error", code: "conversation_unavailable" };
     }
+
+    if (
+      state !== undefined &&
+      (state.identity.channel !== normalized.channel ||
+        state.identity.userId !== normalized.userId)
+    ) {
+      return { kind: "error", code: "invalid_identity" };
+    }
+
+    const prior = state?.processedMessages.find(
+      (message) => message.messageId === normalized.messageId,
+    );
+    if (prior !== undefined) {
+      if (
+        prior.sourceMessageFingerprint !== sourceMessageFingerprint ||
+        prior.command === undefined
+      ) {
+        return { kind: "error", code: "message_conflict" };
+      }
+      return {
+        kind: "command_applied",
+        command: structuredClone(prior.command),
+        response: structuredClone(prior.response),
+      };
+    }
+
+    const context =
+      state === undefined
+        ? emptyContext(normalized)
+        : contextFromState(normalized, state);
 
     let interpreted: unknown;
     try {
@@ -150,6 +188,7 @@ export class AIConversationLayerService {
           channel: normalized.channel,
           userId: normalized.userId,
         },
+        sourceMessageFingerprint,
       });
       return {
         kind: "command_applied",
@@ -162,31 +201,6 @@ export class AIConversationLayerService {
         code: mapConversationError(error),
       };
     }
-  }
-
-  private readSafeContext(
-    input: NormalizedAIConversationLayerInput,
-  ): AIConversationContext | undefined {
-    let state: LocalConversationState | undefined;
-    try {
-      state = this.dependencies.stateStore.findByConversationId(
-        input.conversationId,
-      );
-    } catch {
-      return undefined;
-    }
-
-    // Do not expose another user's state to the interpreter. The existing
-    // deterministic service still performs the authoritative identity check.
-    if (
-      state === undefined ||
-      state.identity.channel !== input.channel ||
-      state.identity.userId !== input.userId
-    ) {
-      return emptyContext(input);
-    }
-
-    return contextFromState(input, state);
   }
 }
 
@@ -207,7 +221,7 @@ function normalizeInput(
   const userId = nonEmptyString(input.userId);
   const conversationId = nonEmptyString(input.conversationId);
   const messageId = nonEmptyString(input.messageId);
-  const text = nonEmptyString(input.text);
+  const text = normalizeClientText(input.text);
   if (
     channel === undefined ||
     userId === undefined ||
@@ -286,99 +300,10 @@ export function validateAIConversationInterpretation(
   if (value.kind !== "command" || !hasExactKeys(value, ["kind", "command"])) {
     return undefined;
   }
-  const command = parseCommand(value.command);
+  const command = parseConversationAgentCommand(value.command);
   return command === undefined
     ? undefined
     : { kind: "command", command };
-}
-
-function parseCommand(value: unknown): ConversationAgentCommand | undefined {
-  if (!isRecord(value) || typeof value.type !== "string") return undefined;
-
-  switch (value.type) {
-    case "show_menu":
-    case "show_cart":
-    case "choose_pickup":
-    case "choose_delivery":
-    case "review_order":
-    case "prepare_checkout":
-    case "customer_reports_payment":
-      return hasExactKeys(value, ["type"])
-        ? { type: value.type }
-        : undefined;
-    case "add_item": {
-      if (
-        !hasNoUnexpectedKeys(value, ["type", "menuItemId", "quantity"]) ||
-        !isNonEmptyString(value.menuItemId)
-      ) {
-        return undefined;
-      }
-      if (value.quantity !== undefined && !isPositiveInteger(value.quantity)) {
-        return undefined;
-      }
-      return {
-        type: "add_item",
-        menuItemId: value.menuItemId.trim(),
-        ...(value.quantity === undefined ? {} : { quantity: value.quantity }),
-      };
-    }
-    case "remove_item":
-      return hasExactKeys(value, ["type", "menuItemId"]) &&
-        isNonEmptyString(value.menuItemId)
-        ? { type: "remove_item", menuItemId: value.menuItemId.trim() }
-        : undefined;
-    case "set_quantity":
-      return hasExactKeys(value, ["type", "menuItemId", "quantity"]) &&
-        isNonEmptyString(value.menuItemId) &&
-        isPositiveInteger(value.quantity)
-        ? {
-            type: "set_quantity",
-            menuItemId: value.menuItemId.trim(),
-            quantity: value.quantity,
-          }
-        : undefined;
-    case "set_customer":
-      if (
-        !hasNoUnexpectedKeys(value, ["type", "firstName", "lastName", "phone"]) ||
-        !optionalNonEmptyString(value.firstName) ||
-        !optionalNonEmptyString(value.lastName) ||
-        !optionalNonEmptyString(value.phone)
-      ) {
-        return undefined;
-      }
-      return {
-        type: "set_customer",
-        ...(value.firstName === undefined
-          ? {}
-          : { firstName: value.firstName.trim() }),
-        ...(value.lastName === undefined
-          ? {}
-          : { lastName: value.lastName.trim() }),
-        ...(value.phone === undefined ? {} : { phone: value.phone.trim() }),
-      };
-    case "set_delivery_address": {
-      if (
-        !hasExactKeys(value, ["type", "address"]) ||
-        !isRecord(value.address) ||
-        !hasExactKeys(value.address, ["line1", "city", "postalCode"]) ||
-        !isNonEmptyString(value.address.line1) ||
-        !isNonEmptyString(value.address.city) ||
-        !isNonEmptyString(value.address.postalCode)
-      ) {
-        return undefined;
-      }
-      return {
-        type: "set_delivery_address",
-        address: {
-          line1: value.address.line1.trim(),
-          city: value.address.city.trim(),
-          postalCode: value.address.postalCode.trim(),
-        },
-      };
-    }
-    default:
-      return undefined;
-  }
 }
 
 function mapConversationError(error: unknown): AIConversationLayerErrorCode {
@@ -416,14 +341,6 @@ function hasExactKeys(
   );
 }
 
-function hasNoUnexpectedKeys(
-  value: Record<string, unknown>,
-  allowedKeys: readonly string[],
-): boolean {
-  const allowed = new Set(allowedKeys);
-  return Object.keys(value).every((key) => allowed.has(key));
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -436,10 +353,12 @@ function nonEmptyString(value: unknown): string | undefined {
   return isNonEmptyString(value) ? value.trim() : undefined;
 }
 
-function optionalNonEmptyString(value: unknown): value is string | undefined {
-  return value === undefined || isNonEmptyString(value);
+function normalizeClientText(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const normalized = value.normalize("NFC").trim().replace(/\s+/gu, " ");
+  return normalized.length === 0 ? undefined : normalized;
 }
 
-function isPositiveInteger(value: unknown): value is number {
-  return typeof value === "number" && Number.isSafeInteger(value) && value > 0;
+function fingerprintSourceMessage(text: string): string {
+  return createHash("sha256").update(text, "utf8").digest("hex");
 }

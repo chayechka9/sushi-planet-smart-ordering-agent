@@ -1,6 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -279,6 +280,44 @@ describe("SQLite conversation state store", () => {
       code: "message_conflict",
     });
     expect(store.findByConversationId("conversation-duplicate")).toEqual(stored);
+  });
+
+  it("decodes legacy processed messages without AI cache fields", async () => {
+    const databasePath = createDatabasePath();
+    let store = openStore(databasePath);
+    const agent = createAgent(store, "conversation-legacy", "order-legacy");
+    await send(agent, "conversation-legacy", "legacy-message", {
+      type: "show_cart",
+    });
+    store.close();
+
+    const database = new DatabaseSync(databasePath);
+    const row = database
+      .prepare(
+        "SELECT state_json FROM conversations WHERE conversation_id = ?",
+      )
+      .get("conversation-legacy") as { state_json: string };
+    const state = JSON.parse(row.state_json) as {
+      processedMessages: Record<string, unknown>[];
+    };
+    delete state.processedMessages[0]?.command;
+    delete state.processedMessages[0]?.sourceMessageFingerprint;
+    database
+      .prepare(
+        "UPDATE conversations SET state_json = ? WHERE conversation_id = ?",
+      )
+      .run(JSON.stringify(state), "conversation-legacy");
+    database.close();
+
+    store = openStore(databasePath);
+    expect(
+      store.findByConversationId("conversation-legacy")?.processedMessages,
+    ).toEqual([
+      expect.objectContaining({
+        messageId: "legacy-message",
+        commandFingerprint: expect.stringMatching(/^[0-9a-f]{64}$/),
+      }),
+    ]);
   });
 
   it("persists payment_confirmed and order_submitted snapshots", async () => {
