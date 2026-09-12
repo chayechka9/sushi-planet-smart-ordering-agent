@@ -6,6 +6,43 @@ export interface OpenAIConfig {
   reasoningEffort: OpenAIReasoningEffort;
 }
 
+export type OpenAIRuntimeConfig =
+  | { enabled: false }
+  | { enabled: true; openAI: OpenAIConfig };
+
+export class OpenAIRuntimeConfigurationError extends Error {
+  readonly code = "invalid_configuration";
+
+  constructor() {
+    super("OpenAI conversation runtime configuration is invalid");
+    this.name = "OpenAIRuntimeConfigurationError";
+  }
+}
+
+/**
+ * Loads the explicit runtime gate before credentials. A key alone never opts
+ * the process into provider access.
+ */
+export function loadOpenAIRuntimeConfig(
+  environment: NodeJS.ProcessEnv = process.env,
+): OpenAIRuntimeConfig {
+  const enabledSetting =
+    environment.OPENAI_RUNTIME_ENABLED?.trim().toLowerCase() ?? "";
+
+  if (enabledSetting === "" || enabledSetting === "false") {
+    return { enabled: false };
+  }
+  if (enabledSetting !== "true") {
+    throw new OpenAIRuntimeConfigurationError();
+  }
+
+  try {
+    return { enabled: true, openAI: loadOpenAIConfig(environment) };
+  } catch {
+    throw new OpenAIRuntimeConfigurationError();
+  }
+}
+
 export function loadOpenAIConfig(
   environment: NodeJS.ProcessEnv = process.env,
 ): OpenAIConfig {

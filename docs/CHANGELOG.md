@@ -5,6 +5,43 @@
 
 ## 12 сентября 2026
 
+### Добавлена disabled-by-default OpenAI runtime composition
+
+- Добавлена явная factory `createOpenAIConversationRuntime`, которая только
+  после успешного opt-in собирает существующую цепочку `OpenAIConfig →
+  OpenAIResponsesHttpTransport → OpenAIConversationInterpreter →
+  AIConversationLayerService`. Существующие deterministic
+  `conversationAgent` и state-store read port принимаются через injection;
+  order/payment/checkout/Poster logic не дублируется и не меняется.
+- Новый config gate `OPENAI_RUNTIME_ENABLED` по умолчанию отключён. Отсутствие
+  флага, явное `false` и наличие одного `OPENAI_API_KEY` возвращают disabled
+  runtime до загрузки credentials и создания transport. Только точное
+  case-insensitive `true` включает composition; enabled runtime без key либо с
+  невалидной OpenAI-конфигурацией завершается фиксированной типизированной
+  `invalid_configuration` ошибкой без значения настройки или секрета.
+- `.env.example` документирует только пустой key и безопасные defaults:
+  runtime `false`, модель `gpt-5.6-luna`, reasoning `high`. Composition не
+  подключена к `src/server.ts`, `createApp` или HTTP route и сама не выполняет
+  provider request.
+- Synthetic tests используют injected fake fetch и deterministic dependencies.
+  Они подтверждают default/explicit disabled, отсутствие требования key и
+  fetch, запрет auto-enable от key, безопасную ошибку enabled-without-key,
+  успешную command composition, default model/reasoning, существующий
+  `store: false`, отсутствие key в body и неизменный health-only ordinary
+  server с отсутствующим AI route. Реальный global fetch не вызывается.
+- README и `docs/ARCHITECTURE.md` фиксируют новую локальную границу. `PLAN.md`,
+  deterministic conversation core, социальные каналы, SumUp, Poster, ChoiceQR,
+  checkout, payment и production wiring не менялись и не подключались.
+- `.env` и `.sumup-e2e` не открывались; API keys, secrets, customer/card data,
+  реальные provider responses и новые dependencies не добавлялись. Реальные
+  OpenAI и другие внешние запросы не выполнялись.
+- Проверки: `npm test` — 283 теста в 28 файлах прошли;
+  `npm run typecheck`; `npm run build`; `git diff --check` — успешно.
+- Result: complete — локальная opt-in composition реализована; первый
+  controlled provider request и любое ordinary-server/production подключение
+  остаются отдельными явно разрешаемыми этапами.
+- Commit: текущий коммит, содержащий эту запись.
+
 ### Добавлен локальный OpenAI Responses API HTTP transport
 
 - `OpenAIResponsesHttpTransport` реализует существующий
