@@ -60,15 +60,18 @@ Instagram / WhatsApp / Facebook / Telegram
   ограниченный контекст и возвращает только allowlisted command либо
   clarification; известные identity mismatch, duplicate и message conflict
   разрешаются по SQLite state до interpreter, а новые команды передаются
-  существующему deterministic conversation core. Реальный network transport и
-  каналы не подключены.
+  существующему deterministic conversation core. Локальный OpenAI HTTP
+  transport реализован, но обычный runtime, `server.ts` и каналы к нему не
+  подключены.
 - Provider-specific OpenAI adapter реализует этот interpreter через injected
   client/transport; `OPENAI_API_KEY` читается только локальной конфигурацией,
   defaults — `gpt-5.6-luna` и reasoning `high`. Strict schema требует все
   поля, использует nullable значения для неактуальных аргументов и проходит
   рекурсивный локальный contract check; request всегда задаёт `store: false`.
-  Adapter не подключён к обычному `server.ts` и не выполняет внешние запросы
-  сам по себе.
+  Responses API transport отправляет этот request одним `POST` с ограниченным
+  timeout и без retry, принимает API key только для Bearer header и возвращает
+  безопасные ошибки без provider body. Transport и adapter не подключены к
+  обычному `server.ts`; реальный OpenAI runtime не запускался.
 
 Обычный `server.ts` запускает только приложение с health route: он не включает
 SQLite, checkout/verifier, webhook или AI layer автоматически. Sandbox-инструменты
@@ -99,9 +102,9 @@ SQLite, checkout/verifier, webhook или AI layer автоматически. S
 раннего отсутствия webhook и Poster `422` неизвестны.
 
 Provider-neutral orchestration boundary и локальный provider-specific OpenAI
-adapter для команд уже реализованы; реальный network transport, свободная
-языковая семантика, социальные каналы, передача сотруднику и полноценный
-журнал событий ещё не реализованы.
+adapter с HTTP transport для команд уже реализованы; controlled runtime
+connection, реальная свободная языковая семантика, социальные каналы, передача
+сотруднику и полноценный журнал событий ещё не реализованы.
 Проект не готов к пилоту.
 
 ## Границы проекта и существующий сайт

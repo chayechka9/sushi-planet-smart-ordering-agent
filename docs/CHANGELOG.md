@@ -5,6 +5,36 @@
 
 ## 12 сентября 2026
 
+### Добавлен локальный OpenAI Responses API HTTP transport
+
+- `OpenAIResponsesHttpTransport` реализует существующий
+  `OpenAIConversationResponseTransport`: выполняет ровно один
+  `POST https://api.openai.com/v1/responses`, передаёт без преобразований
+  существующие `model`, `reasoning`, `instructions`, `input`, `text.format` и
+  обязательный `store: false`. API key используется только в Bearer header;
+  в request body и безопасные ошибки он не попадает.
+- Transport имеет общий ограниченный timeout для запроса и разбора ответа,
+  использует `AbortController` и не выполняет retry. Non-2xx provider body не
+  читается; HTTP failure, network error, timeout и invalid JSON преобразуются
+  в фиксированные типизированные ошибки без provider response или исходного
+  exception message.
+- Fetch boundary инъецируется. Synthetic tests проверяют точный URL, метод,
+  headers и полный body, успешный JSON, все четыре failure path, отсутствие
+  утечки key, отсутствие retry и запрет обращения к реальному global fetch.
+- README и `docs/ARCHITECTURE.md` фиксируют новую локальную границу. Transport
+  не подключён к обычному `src/server.ts`, interpreter/runtime или production;
+  реальные OpenAI API, social, SumUp, Poster, ChoiceQR, checkout и payment
+  запросы не выполнялись. Deterministic conversation core и `PLAN.md` не
+  менялись; новые dependencies не добавлялись.
+- `.env` и `.sumup-e2e` не открывались; secrets, customer/card data и unrelated
+  changes не добавлялись.
+- Проверки: `npm test` — 276 тестов в 27 файлах прошли;
+  `npm run typecheck`; `npm run build`; `git diff --check` — успешно.
+- Result: complete — bounded HTTP transport реализован и проверен локально;
+  controlled runtime composition и первый отдельно разрешённый provider call
+  остаются следующими неподтверждёнными этапами.
+- Commit: текущий коммит, содержащий эту запись.
+
 ### Устранены подтверждённые замечания AI-layer аудита
 
 - OpenAI Responses strict schema теперь объявляет `additionalProperties:
