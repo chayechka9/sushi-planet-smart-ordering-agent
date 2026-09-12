@@ -72,8 +72,12 @@ Instagram / WhatsApp / Facebook / Telegram
   timeout и без retry, принимает API key только для Bearer header и возвращает
   безопасные ошибки без provider body. Runtime по умолчанию отключён и требует
   отдельного `OPENAI_RUNTIME_ENABLED=true`; наличие API key само по себе его не
-  включает. Transport, adapter и composition не подключены к обычному
-  `server.ts`; реальный OpenAI request не выполнялся.
+  включает. Отдельный локальный `openai:smoke` runner использует эту же
+  composition только при одновременных runtime gate, локальном key и явном
+  `--confirm-one-request`; он создаёт удаляемую временную SQLite, делает один
+  вызов conversation service и допускает не более одного provider POST без
+  retry. Transport, adapter, composition и runner не подключены к обычному
+  `server.ts`; реальный OpenAI request и сам smoke-runner ещё не выполнялись.
 
 Обычный `server.ts` запускает только приложение с health route: он не включает
 SQLite, checkout/verifier, webhook или AI layer автоматически. Sandbox-инструменты
@@ -105,9 +109,10 @@ SQLite, checkout/verifier, webhook или AI layer автоматически. S
 
 Provider-neutral orchestration boundary и локальный provider-specific OpenAI
 adapter с HTTP transport и disabled-by-default runtime composition для команд
-уже реализованы; первый controlled provider request, реальная свободная
-языковая семантика, социальные каналы, передача сотруднику и полноценный журнал
-событий ещё не подтверждены или не реализованы.
+и отдельным controlled smoke-runner уже реализованы; первый отдельно
+разрешённый запуск runner/provider request, реальная свободная языковая
+семантика, социальные каналы, передача сотруднику и полноценный журнал событий
+ещё не подтверждены или не реализованы.
 Проект не готов к пилоту.
 
 ## Границы проекта и существующий сайт

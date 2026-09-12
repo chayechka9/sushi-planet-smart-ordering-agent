@@ -5,6 +5,49 @@
 
 ## 12 сентября 2026
 
+### Добавлен controlled OpenAI smoke-runner без фактического запуска
+
+- Добавлены отдельные `src/scripts/run-openai-smoke.ts` и npm-команда
+  `openai:smoke`. Runner повторно использует существующую цепочку
+  `createOpenAIConversationRuntime → AIConversationLayerService`, не дублируя
+  transport, interpreter или deterministic conversation core.
+- До единственного service-вызова обязательны одновременно точный
+  `OPENAI_RUNTIME_ENABLED=true`, локальный `OPENAI_API_KEY` и единственный
+  аргумент `--confirm-one-request`. Без любого gate возвращается только
+  безопасный error summary, provider fetch не выполняется; enabled runtime без
+  key даёт безопасный `configuration_error`.
+- Для будущего разрешённого запуска используются только фиксированные
+  synthetic channel/user/conversation/message IDs и сообщение `покажи меню`.
+  Existing local conversation service получает пустой synthetic menu и новую
+  SQLite в системной временной директории; store закрывается, а директория
+  удаляется в `finally`. Checkout и delivery dependencies являются локальными
+  блокирующими заглушками.
+- Fetch обёрнут one-shot guard: допускается не более одной provider attempt,
+  retry, циклов и автоматического повторного запуска нет. Вывод содержит только
+  success/error, command type либо clarification/error reason и факт provider
+  attempt; key, Authorization, request/response body, исходный текст и IDs не
+  выводятся.
+- Synthetic tests с injected fake fetch подтверждают блокировку без runtime
+  gate, confirmation и key, ровно один fetch при успешной конфигурации,
+  отсутствие retry после network error, отсутствие global fetch, секрета в
+  summary, checkout-вызова и остаточного временного state. Статическая проверка
+  подтверждает отдельную npm-команду и отсутствие wiring к `src/server.ts`,
+  SumUp webhook, Poster handoff или `createApp`.
+- `src/server.ts`, HTTP routes, channels, production wiring, deterministic core,
+  SumUp, Poster, ChoiceQR, checkout и payment flows не менялись и не
+  подключались. `.env`, `.sumup-e2e`, реальные credentials, customer/card data
+  и новые dependencies не открывались и не добавлялись. `PLAN.md` не менялся,
+  потому что крупный этап не завершён.
+- Реальный runner не запускался, реальный OpenAI request и любые другие внешние
+  запросы не выполнялись. Первый запуск по-прежнему требует отдельного явного
+  разрешения непосредственно перед provider action.
+- Проверки: `npm test` — 289 тестов в 29 файлах прошли;
+  `npm run typecheck`; `npm run build`; `git diff --check` — успешно.
+- Result: complete — локальная bounded smoke boundary подготовлена; первый
+  controlled provider request и любое ordinary-server/production подключение
+  остаются отдельными неподтверждёнными этапами.
+- Commit: текущий коммит, содержащий эту запись.
+
 ### Добавлена disabled-by-default OpenAI runtime composition
 
 - Добавлена явная factory `createOpenAIConversationRuntime`, которая только

@@ -8,6 +8,7 @@
     "dev": "tsx watch src/server.ts",
     "build": "tsc -p tsconfig.build.json",
     "start": "node dist/server.js",
+    "openai:smoke": "tsx src/scripts/run-openai-smoke.ts",
     "poster:check-menu": "tsx src/scripts/check-poster-menu.ts",
     "sumup:check-access": "tsx src/scripts/check-sumup-access.ts",
     "sumup:e2e:serve": "tsx src/scripts/run-sumup-sandbox-e2e-webhook.ts",
