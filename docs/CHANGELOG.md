@@ -5,6 +5,66 @@
 
 ## 12 сентября 2026
 
+### SumUp sandbox E2E остановлен на local configuration gate
+
+- Перед внешними действиями подтверждены чистый `main`, исходный HEAD
+  `d61319365ac23dae1cfd4e9502b7cac57fcf24d6`, совпадение с `origin/main` и
+  отсутствие recovery, database, preflight, attempt-marker и hosted-checkout
+  artifacts от незавершённой попытки. Содержимое private artifacts и `.env`
+  не просматривалось и не выводилось.
+- Безопасная локальная проверка конфигурации показала, что обязательные
+  `SUMUP_E2E_RETURN_URL` и `SUMUP_E2E_PORT` отсутствуют. HTTPS endpoint с
+  точным pathname `/webhooks/sumup` поэтому не подтверждён; согласно safety
+  gate работа остановлена до запуска webhook server и до checkout creation.
+- Request counts: checkout POST — `0`; payment attempts — `0`; реальные
+  webhook deliveries — `0`; verifier GET — `0`; recovery GET — `0`; local
+  duplicate replays — `0`; Poster requests — `0`. Retry, второй checkout,
+  production и social/ChoiceQR actions не выполнялись.
+- `PAID`, единственная `SUCCESSFUL` transaction, local `paid` и duplicate этой
+  попыткой не подтверждены. Cleanup status: `not_run`; recovery artifacts не
+  создавались, поэтому очищать или сохранять было нечего.
+- Result: partial — E2E корректно остановлен на обязательном pre-check без
+  внешних SumUp действий. Для новой попытки нужен заранее настроенный HTTPS
+  return URL `/webhooks/sumup` и валидный local port; новый checkout требует
+  отдельного продолжения в рамках оставшегося лимита пользователя.
+
+### Read-only аудит сегодняшнего AI-слоя
+
+- Проверены сегодняшние коммиты `01a0391`, `88954e0` и `d613193`, весь
+  добавленный AI/application/config/adapter code, synthetic tests и связанная
+  документация. `npm test` — 261 тест в 26 файлах прошёл;
+  `npm run typecheck`; `npm run build`; `git diff --check` — успешно. Secrets,
+  `.env`, `.sumup-e2e`, customer/card data и production wiring в tracked diff
+  не добавлены.
+- Confirmed: provider-neutral runtime allowlist отклоняет неизвестные и
+  authoritative fields; customer report об оплате не меняет order на `paid`;
+  OpenAI adapter не подключён к network transport или обычному `server.ts`.
+  Default `gpt-5.6-luna` соответствует предыдущему явному требованию и не
+  меняется от выбора модели текущего Codex-чата.
+- Review finding: strict OpenAI response schema объявляет множество command
+  properties optional и не включает их в `required`; текущие Structured
+  Outputs требуют обязательного описания всех fields, включая nullable.
+  Fake transport tests не проверяют принятие schema реальным API, поэтому
+  provider contract остаётся неподтверждённым и вероятно потребует исправления
+  до первого реального OpenAI request.
+- Review finding: Responses-shaped request не задаёт `store: false`; реальный
+  transport без дополнительной политики мог бы использовать provider default
+  retention. До подключения network transport требуется явное решение по
+  storage/privacy.
+- Review finding: identity mismatch и duplicate message проходят через
+  interpreter до authoritative deterministic guard. State другого пользователя
+  не раскрывается и command повторно не применяется, но возможен лишний платный
+  provider call; недетерминированный повтор того же message ID может завершиться
+  `message_conflict` вместо cached response.
+- Documentation finding: README и `docs/ARCHITECTURE.md` всё ещё называют
+  server-verified SumUp payment/duplicate неподтверждёнными, хотя историческая
+  запись ниже фиксирует один успешный 100-cent sandbox flow. Этот drift не
+  исправлялся в рамках текущего запрета на изменения вне changelog.
+- Result: partial — локальные checks зелёные и основные safety boundaries
+  логичны, но сегодняшний AI-layer нельзя считать полностью безошибочным до
+  устранения перечисленных contract/idempotency/privacy risks и повторной
+  проверки.
+
 ### Свежий read-only sandbox preflight SumUp и Poster
 
 - SumUp: существующий `src/scripts/check-sumup-access.ts` выполнен через
