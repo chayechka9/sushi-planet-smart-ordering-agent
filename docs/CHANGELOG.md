@@ -5,6 +5,39 @@
 
 ## 12 сентября 2026
 
+### Свежий read-only sandbox preflight SumUp и Poster
+
+- SumUp: существующий `src/scripts/check-sumup-access.ts` выполнен через
+  локальный `tsx`-runner ровно один раз. Успешно подтверждены
+  `authenticated: true`, `sandbox: true`, страна `IE`, валюта `EUR` и
+  `configured-and-matched` для merchant из локальной конфигурации. Выполнен
+  ровно один `GET /v1/merchants/{merchant_code}`, `retry: false`, `writes: 0`.
+  Checkout, payment, webhook и POST не выполнялись.
+- Poster: существующий `src/scripts/check-poster-menu.ts` выполнен через
+  локальный `tsx`-runner. Read-only settings/menu check подтвердил совпадение
+  ответа с настроенным аккаунтом, `EUR`, timezone `Europe/Dublin`, venue spot
+  `1` и три видимых menu entries с текущими ценами: product `1` — `1000`
+  евроцентов, product `3` — `300` евроцентов, product `5` — `400`
+  евроцентов. Выполнены только `GET settings.getAllSettings` и `GET
+  menu.getProducts`; writes: `0`.
+- Confirmed этим preflight: актуальный доступ к read-only SumUp merchant,
+  sandbox/IE/EUR и merchant match; актуальный read-only Poster account match,
+  EUR, timezone/venue spot `1`, product IDs `1`, `3`, `5` и их spot prices.
+  Вывод был ограничен безопасными полями; tokens, API keys, raw responses,
+  customer/card data и secret URLs не выводились и не сохранялись.
+- Unconfirmed: payment, checkout, webhook delivery, server-side verification,
+  local `paid`, duplicate/retry behavior, Poster incoming-order creation,
+  kitchen visibility, production identity, ChoiceQR и social channels. Их
+  запросы в этом preflight не выполнялись.
+- `.env` и `.sumup-e2e` не открывались. Код, `src/server.ts`, production
+  wiring, menu data и внешние системы не изменялись. README, PLAN и
+  `docs/ARCHITECTURE.md` не менялись: доказанного documentation drift для
+  этого preflight не обнаружено.
+- Проверка: `git diff --check` — успешно.
+- Result: complete — read-only sandbox preflight завершён; полученные факты
+  безопасно зафиксированы, а все write/payment/production границы сохранены.
+- Commit: текущий коммит, содержащий эту запись.
+
 ### Provider-specific OpenAI conversation adapter
 
 - Добавлен `OpenAIConversationInterpreter`, реализующий существующий
