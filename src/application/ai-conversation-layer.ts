@@ -133,7 +133,7 @@ export class AIConversationLayerService {
       return { kind: "error", code: "interpreter_unavailable" };
     }
 
-    const interpretation = parseInterpretation(interpreted);
+    const interpretation = validateAIConversationInterpretation(interpreted);
     if (interpretation === undefined) {
       return { kind: "error", code: "invalid_interpreter_result" };
     }
@@ -266,7 +266,7 @@ function contextFromState(
   };
 }
 
-function parseInterpretation(
+export function validateAIConversationInterpretation(
   value: unknown,
 ): AIConversationInterpretation | undefined {
   if (!isRecord(value) || typeof value.kind !== "string") {

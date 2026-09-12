@@ -150,9 +150,11 @@ SQLite, переживает restart и сохраняет duplicate message gua
 provider-neutral AI orchestration boundary: injected interpreter получает
 ограниченный контекст и может вернуть только существующую команду или
 безопасное уточнение; runtime allowlist не принимает цены, суммы, availability,
-delivery fee, payment/order status или Poster fields. Реальный AI provider,
-свободная языковая семантика, handoff сотруднику и transport adapters ещё не
-подключены.
+delivery fee, payment/order status или Poster fields. Реализован локальный
+provider-specific OpenAI adapter и его конфигурационная boundary через
+injected transport; API keys и network requests не подключены. Свободная
+языковая семантика, production wiring, handoff сотруднику и transport adapters
+каналов ещё не подключены.
 
 ### 6. Подключить первый канал
 

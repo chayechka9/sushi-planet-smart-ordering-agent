@@ -56,7 +56,11 @@ Instagram / WhatsApp / Facebook / Telegram
 - Provider-neutral AI orchestration boundary: injected interpreter получает
   ограниченный контекст и возвращает только allowlisted command либо
   clarification; команда передаётся существующему deterministic conversation
-  core. Реальный AI provider и каналы не подключены.
+  core. Реальный network transport и каналы не подключены.
+- Provider-specific OpenAI adapter реализует этот interpreter через injected
+  client/transport; `OPENAI_API_KEY` читается только локальной конфигурацией,
+  defaults — `gpt-5.6-luna` и reasoning `high`. Adapter не подключён к
+  обычному `server.ts` и не выполняет внешние запросы сам по себе.
 
 Обычный `server.ts` запускает только приложение с health route: он не включает
 SQLite, checkout/verifier, webhook или AI layer автоматически. Sandbox-инструменты
@@ -85,9 +89,10 @@ duplicate в реальном sandbox, приём предоплаты Poster, �
 webhook и последнего Poster `422` неизвестны. Данные старой E2E-попытки были
 удалены; новые recovery-инструменты не восстанавливают удалённую попытку.
 
-Provider-neutral orchestration boundary для команд уже реализована локально;
-реальный interpreter/provider, свободная языковая семантика, социальные
-каналы, передача сотруднику и полноценный журнал событий ещё не реализованы.
+Provider-neutral orchestration boundary и локальный provider-specific OpenAI
+adapter для команд уже реализованы; реальный network transport, свободная
+языковая семантика, социальные каналы, передача сотруднику и полноценный
+журнал событий ещё не реализованы.
 Проект не готов к пилоту.
 
 ## Границы проекта и существующий сайт

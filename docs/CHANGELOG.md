@@ -5,6 +5,38 @@
 
 ## 12 сентября 2026
 
+### Provider-specific OpenAI conversation adapter
+
+- Добавлен `OpenAIConversationInterpreter`, реализующий существующий
+  `AIConversationInterpreter` без изменения deterministic conversation core.
+  Adapter получает только `AIConversationContext` и текст клиента, строит
+  Responses-shaped structured request и передаёт его через injected
+  `OpenAIConversationResponseTransport`.
+- Добавлен модуль `src/config/openai.ts`: `OPENAI_API_KEY` читается только из
+  переданного локального `ProcessEnv`, обязательный ключ не включается в
+  request body или диагностический вывод; `OPENAI_MODEL` и
+  `OPENAI_REASONING_EFFORT` настраиваются там же, defaults —
+  `gpt-5.6-luna` и `high`.
+- Ответ модели извлекается только из структурированного output, проходит
+  существующую runtime allowlist `validateAIConversationInterpretation` и
+  превращается только в существующую команду или `needs_clarification`.
+  Malformed, unknown и authoritative fields (price, total, availability,
+  delivery fee, payment/order status и Poster data) безопасно отклоняются.
+- Добавлены synthetic tests для structured command, malformed/unknown output,
+  missing API key, model/reasoning settings, exact safe context payload и
+  authoritative-field rejection. Transport является fake; внешняя сеть,
+  OpenAI API, обычный `src/server.ts`, каналы, SumUp, Poster, ChoiceQR,
+  checkout и payment flow не подключались.
+- Новых зависимостей, API keys, customer data или card data в repository не
+  добавлялось; `.env` и `.sumup-e2e` не открывались.
+- Проверки: `npm test` — 261 тест в 26 файлах прошёл;
+  `npm run typecheck`; `npm run build`; `git diff --check` — успешно.
+- Result: complete — локальный provider-specific adapter и его injected
+  transport boundary готовы для последующего контролируемого подключения;
+  реальный HTTP transport, production wiring и каналы остаются отдельными
+  этапами.
+- Commit: текущий коммит, содержащий эту запись.
+
 ### Provider-neutral AI conversation orchestration boundary
 
 - Добавлен injected `AIConversationInterpreter` и
