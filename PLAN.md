@@ -51,7 +51,7 @@ Production-доступ Александра нужен после успешн�
 
 ## Этапы работы
 
-Этапы 0–1 завершены, этапы 2–4 выполнены частично. Работы по SumUp исторически
+Этапы 0–1 завершены, этапы 2–5 выполнены частично. Работы по SumUp исторически
 начались до полной проверки Poster и кухни; обе интеграции ещё требуют
 завершения. Обычный `server.ts` не включает SQLite, SumUp checkout/verifier
 или webhook автоматически: E2E/recovery-инструменты существуют отдельно.
@@ -146,8 +146,13 @@ checkout/transaction, локальные order/payment остались неоп
 корзину и обязательные pickup/delivery/customer данные, создаёт checkout через
 существующий backend flow и принимает payment/Poster statuses только после
 authoritative verified flow. Его state реализует прежний store-port через
-SQLite, переживает restart и сохраняет duplicate message guard. Свободный язык,
-LLM, handoff сотруднику и transport adapters ещё не реализованы.
+SQLite, переживает restart и сохраняет duplicate message guard. Добавлена
+provider-neutral AI orchestration boundary: injected interpreter получает
+ограниченный контекст и может вернуть только существующую команду или
+безопасное уточнение; runtime allowlist не принимает цены, суммы, availability,
+delivery fee, payment/order status или Poster fields. Реальный AI provider,
+свободная языковая семантика, handoff сотруднику и transport adapters ещё не
+подключены.
 
 ### 6. Подключить первый канал
 

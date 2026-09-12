@@ -3,6 +3,43 @@
 Здесь хранится подробная техническая история завершённых изменений. README
 описывает проект и его границы, а PLAN — крупные этапы и их высокий уровень.
 
+## 12 сентября 2026
+
+### Provider-neutral AI conversation orchestration boundary
+
+- Добавлен injected `AIConversationInterpreter` и
+  `AIConversationLayerService`: interpreter получает только безопасные
+  conversation context и текст клиента, а application service принимает
+  channel/user/conversation/message identity, проверяет результат и передаёт
+  разрешённую существующую `ConversationAgentCommand` в
+  `LocalConversationAgentService`.
+- Safe context ограничен identity, фазой conversation, ID и количеством
+  позиций корзины, fulfilment, наличием обязательных customer fields и фактом
+  checkout. Цены, availability, суммы, delivery fee, raw customer data,
+  payment details и Poster data в него не передаются; runtime allowlist
+  отвергает неизвестные команды, лишние поля и попытки задать authoritative
+  значения.
+- Безопасный результат `needs_clarification` возвращается без изменения
+  deterministic core. Identity check, duplicate message guard и
+  message-conflict остаются в SQLite-backed `LocalConversationAgentService`.
+  Сообщение о самостоятельной оплате не вызывает payment verification или
+  Poster handoff и не переводит order в `paid`.
+- Добавлены synthetic tests с fake interpreter и временной SQLite для
+  allowlisted free-text command, malformed/unknown result, clarification,
+  duplicate message, message conflict, channel/user mismatch и запрета
+  прямого вызова payment/Poster/network boundaries.
+- Реальный AI provider, API keys, внешняя сеть, социальные каналы, SumUp,
+  Poster, ChoiceQR, обычный `src/server.ts` и production wiring не
+  подключались; новые зависимости не добавлялись. `.env` и `.sumup-e2e` не
+  открывались.
+- Проверки: `npm test` — 247 тестов в 25 файлах прошли;
+  `npm run typecheck`; `npm run build`; `git diff --check` — успешно.
+- Result: complete — локальная безопасная orchestration boundary подготовлена
+  для последующего выбора provider; реальный interpreter/provider, каналы,
+  handoff, production wiring и внешняя верификация остаются отдельными
+  этапами.
+- Commit: текущий коммит, содержащий эту запись.
+
 ## 11 сентября 2026
 
 ### Persistent conversation storage на SQLite

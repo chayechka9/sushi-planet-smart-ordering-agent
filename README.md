@@ -53,9 +53,13 @@ Instagram / WhatsApp / Facebook / Telegram
   paid-only handoff с injected submitter, sandbox-only one-shot transport и
   read-only inspector boundary. Эти Poster-компоненты не подключены к обычному
   серверу; raw incoming-order decoder и production transport отсутствуют.
+- Provider-neutral AI orchestration boundary: injected interpreter получает
+  ограниченный контекст и возвращает только allowlisted command либо
+  clarification; команда передаётся существующему deterministic conversation
+  core. Реальный AI provider и каналы не подключены.
 
 Обычный `server.ts` запускает только приложение с health route: он не включает
-SQLite, checkout/verifier или webhook автоматически. Sandbox-инструменты
+SQLite, checkout/verifier, webhook или AI layer автоматически. Sandbox-инструменты
 запускаются отдельно. Локальные тесты с mock-ответами и временной SQLite
 проверяют компоненты, но не доказывают работу внешнего сквозного сценария.
 
@@ -81,8 +85,10 @@ duplicate в реальном sandbox, приём предоплаты Poster, �
 webhook и последнего Poster `422` неизвестны. Данные старой E2E-попытки были
 удалены; новые recovery-инструменты не восстанавливают удалённую попытку.
 
-Логика умного агента, социальные каналы, передача сотруднику и полноценный
-журнал событий ещё не реализованы. Проект не готов к пилоту.
+Provider-neutral orchestration boundary для команд уже реализована локально;
+реальный interpreter/provider, свободная языковая семантика, социальные
+каналы, передача сотруднику и полноценный журнал событий ещё не реализованы.
+Проект не готов к пилоту.
 
 ## Границы проекта и существующий сайт
 
@@ -121,6 +127,7 @@ ChoiceQR остаётся на паузе как возможная вспомо
 ```text
 Каналы общения
 → адаптеры Instagram / WhatsApp / Facebook / Telegram
+→ provider-neutral AI interpreter
 → единый сервер агента
 → меню, корзина, доставка и заказ
 → один выбранный платёжный сервис (первый кандидат — SumUp)
