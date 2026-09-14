@@ -10,6 +10,10 @@ import type {
   TelegramSendMessageInput,
   TelegramUpdateEnvelope,
 } from "../src/integrations/telegram/api-transport.js";
+import {
+  TelegramApiTransportError,
+  type TelegramTransportFailureCode,
+} from "../src/integrations/telegram/api-transport.js";
 import { DeterministicTelegramInterpreter } from "../src/integrations/telegram/deterministic-interpreter.js";
 import { writeLocalMenuSnapshotAtomically } from "../src/menu/local-menu-snapshot.js";
 import {
@@ -324,6 +328,86 @@ describe("controlled Telegram polling runner", () => {
       text: "Меню сейчас недоступно.",
       signal: controller.signal,
     });
+  });
+
+  it.each([
+    "timeout",
+    "http_failure",
+    "network_failure",
+    "invalid_response",
+  ] satisfies TelegramTransportFailureCode[])(
+    "reports allowlisted %s without retry or transport details",
+    async (diagnosticReason) => {
+      const rawSecret = `raw provider detail ${syntheticToken}`;
+      const transportError = Object.assign(
+        new TelegramApiTransportError(diagnosticReason),
+        { rawSecret },
+      );
+      const transport: TelegramApiTransport = {
+        getUpdates: vi.fn(async () => {
+          throw transportError;
+        }),
+        sendMessage: vi.fn(),
+      };
+      const events: TelegramPollingRunnerEvent[] = [];
+
+      const summary = await runTelegramPolling({
+        argv: [TELEGRAM_POLLING_CONFIRMATION],
+        environment: enabledEnvironment(),
+        signal: new AbortController().signal,
+        databasePath: temporaryDatabasePath(),
+        transport,
+        onEvent: (event) => {
+          events.push(event);
+        },
+      });
+
+      expect(summary).toEqual({
+        status: "error",
+        errorCode: "polling_failed",
+        diagnosticReason,
+      });
+      expect(transport.getUpdates).toHaveBeenCalledOnce();
+      expect(transport.sendMessage).not.toHaveBeenCalled();
+      const safeOutput = JSON.stringify([...events, summary]);
+      expect(safeOutput).not.toContain(rawSecret);
+      expect(safeOutput).not.toContain(syntheticToken);
+      expect(safeOutput).not.toContain("message");
+      expect(safeOutput).not.toContain("chat");
+      expect(safeOutput).not.toContain("update");
+    },
+  );
+
+  it("maps an unknown raw polling exception to safe internal_failure", async () => {
+    const rawSecret = `raw internal exception ${syntheticToken}`;
+    const transport: TelegramApiTransport = {
+      getUpdates: vi.fn(async () => {
+        throw new Error(rawSecret);
+      }),
+      sendMessage: vi.fn(),
+    };
+    const events: TelegramPollingRunnerEvent[] = [];
+
+    const summary = await runTelegramPolling({
+      argv: [TELEGRAM_POLLING_CONFIRMATION],
+      environment: enabledEnvironment(),
+      signal: new AbortController().signal,
+      databasePath: temporaryDatabasePath(),
+      transport,
+      onEvent: (event) => {
+        events.push(event);
+      },
+    });
+
+    expect(summary).toEqual({
+      status: "error",
+      errorCode: "polling_failed",
+      diagnosticReason: "internal_failure",
+    });
+    expect(transport.getUpdates).toHaveBeenCalledOnce();
+    expect(transport.sendMessage).not.toHaveBeenCalled();
+    expect(JSON.stringify([...events, summary])).not.toContain(rawSecret);
+    expect(JSON.stringify([...events, summary])).not.toContain(syntheticToken);
   });
 
   it("turns SIGINT and SIGTERM into abort and removes both handlers", () => {

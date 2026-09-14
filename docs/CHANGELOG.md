@@ -5,6 +5,46 @@
 
 ## 14 сентября 2026
 
+### Allowlisted diagnostics для Telegram polling failures
+
+- `TelegramApiTransportError` теперь содержит только фиксированный безопасный
+  code из allowlist: `timeout`, `http_failure`, `network_failure`,
+  `invalid_response` или `internal_failure`. Error message остаётся общим;
+  HTTP status, provider details, URL, token, request/response body и raw
+  exception не сохраняются в ошибке и не выводятся.
+- Telegram HTTP transport отличает истечение локального request timeout,
+  non-success HTTP без чтения body, fetch/network failure, невалидный JSON/API
+  envelope/update shape и внутреннюю ошибку локального input/config. Внешний
+  SIGINT/SIGTERM abort по-прежнему считается штатной остановкой, а не failure.
+- Controlled runner сохраняет общий `errorCode: polling_failed`, но теперь
+  добавляет обязательный `diagnosticReason` из той же allowlist. Неизвестное
+  исключение из injected transport, observer, SQLite или composition
+  нормализуется в `internal_failure`; raw exception никогда не попадает в CLI
+  summary.
+- Retry не добавлен: после transport/polling exception цикл завершается, runner
+  делает единственный safe summary, а CLI выставляет ненулевой exit code.
+  Обработка updates, send-failure strategy, SQLite identity/duplicate guards,
+  local menu snapshot и deterministic conversation flow не менялись.
+- Synthetic transport tests проверяют все пять категорий, включая timeout,
+  non-success HTTP без чтения body, network rejection с секретным raw message,
+  invalid JSON и invalid local input. Runner tests подтверждают allowlisted
+  diagnostic для четырёх внешних категорий, safe `internal_failure` для
+  неизвестного raw exception, ровно один `getUpdates` attempt и отсутствие
+  token/raw details/message/chat/update data в сериализованном output.
+- Фактический ранее наблюдавшийся `polling_failed` нельзя классифицировать
+  задним числом, потому что прежняя реализация уничтожила первичную категорию.
+  Будущий отдельно разрешённый внешний запуск сможет безопасно показать одну
+  точную allowlisted `diagnosticReason` без provider details.
+- `src/server.ts`, Telegram message handling, SQLite, menu snapshot, OpenAI,
+  SumUp, Poster и ChoiceQR не менялись и не подключались. В этой задаче
+  Telegram polling не запускался, `.env` не открывался и внешние запросы не
+  выполнялись.
+- Проверки: `npm test` — 331 тест в 35 файлах прошёл;
+  `npm run typecheck`; `npm run build`; `git diff --check` — успешно.
+- Result: complete — controlled Telegram CLI теперь различает безопасные
+  категории polling failure; причина исторического сбоя остаётся неизвестной.
+- Commit: текущий коммит, содержащий эту запись.
+
 ### Validated local menu snapshot для controlled Telegram runner
 
 - Telegram polling runner больше не использует жёстко заданное пустое меню.

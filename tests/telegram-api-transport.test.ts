@@ -94,11 +94,107 @@ describe("Telegram Bot API HTTP transport", () => {
     }
 
     expect(caught).toBeInstanceOf(TelegramApiTransportError);
+    expect(caught).toMatchObject({ code: "http_failure" });
     expect(String(caught)).not.toContain(syntheticToken);
     expect(json).not.toHaveBeenCalled();
     expect(fetcher).toHaveBeenCalledOnce();
   });
+
+  it("classifies a bounded request timeout without retaining the raw error", async () => {
+    const rawFailure = `raw timeout ${syntheticToken}`;
+    const fetcher = vi.fn<TelegramFetch>(
+      async (_input, init) =>
+        await new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener(
+            "abort",
+            () => reject(new Error(rawFailure)),
+            { once: true },
+          );
+        }),
+    );
+    const transport = new TelegramBotApiHttpTransport(
+      { enabled: true, botToken: syntheticToken },
+      { fetcher, requestTimeoutMs: 1 },
+    );
+
+    const caught = await captureFailure(
+      transport.getUpdates({ timeoutSeconds: 25 }),
+    );
+
+    expect(caught).toMatchObject({ code: "timeout" });
+    expect(String(caught)).not.toContain(rawFailure);
+    expect(String(caught)).not.toContain(syntheticToken);
+    expect(fetcher).toHaveBeenCalledOnce();
+  });
+
+  it("classifies a network failure without retaining provider details", async () => {
+    const rawFailure = `raw network failure ${syntheticToken}`;
+    const fetcher = vi
+      .fn<TelegramFetch>()
+      .mockRejectedValue(new Error(rawFailure));
+    const transport = new TelegramBotApiHttpTransport(
+      { enabled: true, botToken: syntheticToken },
+      { fetcher },
+    );
+
+    const caught = await captureFailure(
+      transport.getUpdates({ timeoutSeconds: 25 }),
+    );
+
+    expect(caught).toMatchObject({ code: "network_failure" });
+    expect(String(caught)).not.toContain(rawFailure);
+    expect(String(caught)).not.toContain(syntheticToken);
+    expect(fetcher).toHaveBeenCalledOnce();
+  });
+
+  it("classifies invalid provider JSON without retaining its exception", async () => {
+    const rawFailure = `raw response failure ${syntheticToken}`;
+    const fetcher = vi.fn<TelegramFetch>().mockResolvedValue({
+      ok: true,
+      async json() {
+        throw new Error(rawFailure);
+      },
+    } as unknown as Response);
+    const transport = new TelegramBotApiHttpTransport(
+      { enabled: true, botToken: syntheticToken },
+      { fetcher },
+    );
+
+    const caught = await captureFailure(
+      transport.getUpdates({ timeoutSeconds: 25 }),
+    );
+
+    expect(caught).toMatchObject({ code: "invalid_response" });
+    expect(String(caught)).not.toContain(rawFailure);
+    expect(String(caught)).not.toContain(syntheticToken);
+    expect(fetcher).toHaveBeenCalledOnce();
+  });
+
+  it("classifies invalid local transport input as an internal failure", async () => {
+    const fetcher = vi.fn<TelegramFetch>();
+    const transport = new TelegramBotApiHttpTransport(
+      { enabled: true, botToken: syntheticToken },
+      { fetcher },
+    );
+
+    const caught = await captureFailure(
+      transport.getUpdates({ timeoutSeconds: 51 }),
+    );
+
+    expect(caught).toMatchObject({ code: "internal_failure" });
+    expect(String(caught)).not.toContain(syntheticToken);
+    expect(fetcher).not.toHaveBeenCalled();
+  });
 });
+
+async function captureFailure(request: Promise<unknown>): Promise<unknown> {
+  try {
+    await request;
+  } catch (error) {
+    return error;
+  }
+  throw new Error("Expected Telegram transport request to fail");
+}
 
 function jsonResponse(payload: unknown): Response {
   return {

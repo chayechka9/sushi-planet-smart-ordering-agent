@@ -8,7 +8,11 @@ import {
   TelegramRuntimeConfigurationError,
 } from "../config/telegram.js";
 import { createOrder } from "../domain/order.js";
-import type { TelegramApiTransport } from "../integrations/telegram/api-transport.js";
+import {
+  TelegramApiTransportError,
+  type TelegramApiTransport,
+  type TelegramTransportFailureCode,
+} from "../integrations/telegram/api-transport.js";
 import { DeterministicTelegramInterpreter } from "../integrations/telegram/deterministic-interpreter.js";
 import type { TelegramPollResult } from "../integrations/telegram/polling-adapter.js";
 import {
@@ -37,8 +41,12 @@ export type TelegramPollingRunnerSummary =
       errorCode:
         | "confirmation_required"
         | "runtime_disabled"
-        | "invalid_configuration"
-        | "polling_failed";
+        | "invalid_configuration";
+    }
+  | {
+      status: "error";
+      errorCode: "polling_failed";
+      diagnosticReason: TelegramTransportFailureCode;
     };
 
 export interface TelegramPollingRunnerOptions {
@@ -127,9 +135,16 @@ export async function runTelegramPolling(
       await options.onEvent?.(summarizeBatch(result));
     });
     return { status: "stopped" };
-  } catch {
+  } catch (error) {
     if (options.signal.aborted) return { status: "stopped" };
-    return { status: "error", errorCode: "polling_failed" };
+    return {
+      status: "error",
+      errorCode: "polling_failed",
+      diagnosticReason:
+        error instanceof TelegramApiTransportError
+          ? error.code
+          : "internal_failure",
+    };
   } finally {
     stateStore?.close();
   }

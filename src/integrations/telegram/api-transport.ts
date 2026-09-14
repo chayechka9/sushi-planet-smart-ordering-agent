@@ -35,8 +35,15 @@ export interface TelegramBotApiHttpTransportOptions {
   requestTimeoutMs?: number;
 }
 
+export type TelegramTransportFailureCode =
+  | "timeout"
+  | "http_failure"
+  | "network_failure"
+  | "invalid_response"
+  | "internal_failure";
+
 export class TelegramApiTransportError extends Error {
-  constructor() {
+  constructor(readonly code: TelegramTransportFailureCode) {
     super("Telegram API request failed");
     this.name = "TelegramApiTransportError";
   }
@@ -55,7 +62,7 @@ export class TelegramBotApiHttpTransport implements TelegramApiTransport {
     options: TelegramBotApiHttpTransportOptions = {},
   ) {
     if (config.enabled !== true || config.botToken.trim().length === 0) {
-      throw new TelegramApiTransportError();
+      throw new TelegramApiTransportError("internal_failure");
     }
     this.fetcher = options.fetcher ?? globalThis.fetch;
     this.requestTimeoutMs = options.requestTimeoutMs ?? 35_000;
@@ -63,7 +70,7 @@ export class TelegramBotApiHttpTransport implements TelegramApiTransport {
       !Number.isSafeInteger(this.requestTimeoutMs) ||
       this.requestTimeoutMs < 1
     ) {
-      throw new TelegramApiTransportError();
+      throw new TelegramApiTransportError("internal_failure");
     }
   }
 
@@ -75,7 +82,7 @@ export class TelegramBotApiHttpTransport implements TelegramApiTransport {
       input.offset !== undefined &&
       (!Number.isSafeInteger(input.offset) || input.offset < 0)
     ) {
-      throw new TelegramApiTransportError();
+      throw new TelegramApiTransportError("internal_failure");
     }
 
     const body: Record<string, unknown> = {
@@ -85,13 +92,17 @@ export class TelegramBotApiHttpTransport implements TelegramApiTransport {
     if (input.offset !== undefined) body.offset = input.offset;
 
     const result = await this.request("getUpdates", body, input.signal);
-    if (!Array.isArray(result)) throw new TelegramApiTransportError();
+    if (!Array.isArray(result)) {
+      throw new TelegramApiTransportError("invalid_response");
+    }
 
     return result.map((value) => {
-      if (!isRecord(value)) throw new TelegramApiTransportError();
+      if (!isRecord(value)) {
+        throw new TelegramApiTransportError("invalid_response");
+      }
       const updateId = value.update_id;
       if (!Number.isSafeInteger(updateId) || (updateId as number) < 0) {
-        throw new TelegramApiTransportError();
+        throw new TelegramApiTransportError("invalid_response");
       }
       return { updateId: updateId as number, payload: value };
     });
@@ -104,7 +115,7 @@ export class TelegramBotApiHttpTransport implements TelegramApiTransport {
       input.text.trim().length === 0 ||
       input.text.length > 4_096
     ) {
-      throw new TelegramApiTransportError();
+      throw new TelegramApiTransportError("internal_failure");
     }
     await this.request(
       "sendMessage",
@@ -119,10 +130,14 @@ export class TelegramBotApiHttpTransport implements TelegramApiTransport {
     externalSignal?: AbortSignal,
   ): Promise<unknown> {
     const controller = new AbortController();
+    let timedOut = false;
     const abortFromExternal = () => controller.abort();
     externalSignal?.addEventListener("abort", abortFromExternal, { once: true });
     if (externalSignal?.aborted) controller.abort();
-    const timeout = setTimeout(() => controller.abort(), this.requestTimeoutMs);
+    const timeout = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, this.requestTimeoutMs);
 
     try {
       const response = await this.fetcher(
@@ -135,21 +150,26 @@ export class TelegramBotApiHttpTransport implements TelegramApiTransport {
           signal: controller.signal,
         },
       );
-      if (!response.ok) throw new TelegramApiTransportError();
+      if (!response.ok) {
+        throw new TelegramApiTransportError("http_failure");
+      }
 
       let payload: unknown;
       try {
         payload = await response.json();
       } catch {
-        throw new TelegramApiTransportError();
+        if (timedOut) throw new TelegramApiTransportError("timeout");
+        throw new TelegramApiTransportError("invalid_response");
       }
       if (!isRecord(payload) || payload.ok !== true || !("result" in payload)) {
-        throw new TelegramApiTransportError();
+        throw new TelegramApiTransportError("invalid_response");
       }
       return payload.result;
     } catch (error) {
       if (error instanceof TelegramApiTransportError) throw error;
-      throw new TelegramApiTransportError();
+      throw new TelegramApiTransportError(
+        timedOut ? "timeout" : "network_failure",
+      );
     } finally {
       clearTimeout(timeout);
       externalSignal?.removeEventListener("abort", abortFromExternal);
@@ -159,7 +179,7 @@ export class TelegramBotApiHttpTransport implements TelegramApiTransport {
 
 function assertTimeoutSeconds(value: number): void {
   if (!Number.isSafeInteger(value) || value < 0 || value > 50) {
-    throw new TelegramApiTransportError();
+    throw new TelegramApiTransportError("internal_failure");
   }
 }
 
