@@ -3,6 +3,50 @@
 Здесь хранится подробная техническая история завершённых изменений. README
 описывает проект и его границы, а PLAN — крупные этапы и их высокий уровень.
 
+## 14 сентября 2026
+
+### Первый локальный Telegram long-polling adapter
+
+- Добавлен transport-neutral `TelegramLongPollingAdapter`: он получает update
+  batches через injected `TelegramApiTransport`, последовательно обрабатывает
+  только обычные текстовые сообщения из private chats и безопасно игнорирует
+  non-text, group и остальные update types. `update_id` используется для
+  следующего polling offset, а стабильные chat/user/message IDs преобразуются
+  в channel identity существующего conversation layer.
+- До conversation handler adapter читает существующий SQLite state. Уже
+  сохранённый Telegram `message_id` возвращает `duplicate` без interpreter и
+  повторного `sendMessage`, в том числе после закрытия и повторного открытия
+  базы; несовпадающий channel/user останавливается до interpreter и ответа.
+- Ответы существующего `AIConversationLayerService` и deterministic order core
+  преобразуются в ограниченный plain-text Telegram response. Ошибка отправки
+  возвращает безопасный `send_failed`; автоматического retry нет. Если core уже
+  сохранил message, повтор после send failure также подавляется как duplicate,
+  поэтому надёжный transactional outbox остаётся отдельной будущей задачей.
+- Добавлен token-aware `TelegramBotApiHttpTransport` для `getUpdates` и
+  `sendMessage`. Fetch boundary инъецируется; HTTP/non-JSON/provider failures
+  преобразуются в фиксированную ошибку без response body или token. Transport
+  не выполняет запросов при construction.
+- Добавлены config gate и composition boundary. По умолчанию
+  `TELEGRAM_RUNTIME_ENABLED=false`; наличие одного `TELEGRAM_BOT_TOKEN` ничего
+  не включает. Enabled runtime требует непустой локальный token, но создание
+  runtime не запускает polling. `.env.example` содержит только пустое имя
+  переменной и безопасный disabled default.
+- Unit/integration tests используют fake Telegram transport, injected fake
+  interpreter и временную SQLite. Проверены private text, duplicate, restart,
+  identity mismatch, unsupported updates, send failure без retry, HTTP boundary
+  на injected fetch, disabled runtime и отсутствие Telegram wiring в обычном
+  `src/server.ts`.
+- Реальный polling и переписка с Telegram-ботом не запускались. Внешние запросы
+  к Telegram, OpenAI, SumUp, Poster и ChoiceQR не выполнялись; `.env` не
+  открывался. Обычный `src/server.ts` остался health-only и не включает channel,
+  AI, payment или Poster runtime автоматически.
+- Проверки: `npm test` — 301 тест в 32 файлах прошёл;
+  `npm run typecheck`; `npm run build`; `git diff --check` — успешно.
+- Result: complete — первый локальный Telegram adapter и opt-in runtime boundary
+  готовы; реальный bot access, polling run и transactional outbound delivery
+  остаются отдельными неподтверждёнными этапами.
+- Commit: текущий коммит, содержащий эту запись.
+
 ## 12 сентября 2026
 
 ### Успешно выполнен первый controlled direct OpenAI smoke-run
