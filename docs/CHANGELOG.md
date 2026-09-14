@@ -5,6 +5,54 @@
 
 ## 14 сентября 2026
 
+### Controlled deterministic Telegram polling CLI
+
+- Добавлена отдельная npm-команда `telegram:poll` и CLI wrapper
+  `src/scripts/run-telegram-polling.ts`. Wrapper загружает только локальное
+  environment, устанавливает SIGINT/SIGTERM handlers и вызывает отдельный
+  testable runner; обычный `src/server.ts` не изменён и остаётся health-only.
+- До создания SQLite и Telegram transport runner требует единственный точный
+  аргумент `--confirm-telegram-polling`. Далее обязательны явный
+  `TELEGRAM_RUNTIME_ENABLED=true` и непустой локальный `TELEGRAM_BOT_TOKEN`.
+  Отсутствие любого gate возвращает только безопасный error code без polling,
+  `getUpdates`, `sendMessage` или другого network I/O.
+- Runner собирает существующие `AIConversationLayerService`,
+  `LocalConversationAgentService`, `SqliteConversationStateStore` и Telegram
+  adapter с новым deterministic interpreter. Он поддерживает только bounded
+  `/start`/cart и menu-команды; `/start` показывает пустую локальную корзину,
+  а menu snapshot намеренно пуст до отдельного подключения достоверного меню.
+  Неизвестный текст запрашивает уточнение. OpenAI runtime/API, checkout, SumUp,
+  Poster и production dependencies не импортируются и не подключаются.
+- Conversation state сохраняется по умолчанию в ignored локальной
+  `telegram-conversations.sqlite`; raw incoming text не сохраняется. CLI
+  выводит только allowlisted `started`, aggregate batch counters и итоговый
+  `stopped` либо безопасный error code — без token, message/update IDs, текста,
+  chat/user identity или provider details.
+- SIGINT и SIGTERM переводятся в общий `AbortSignal`: активный long-poll request
+  отменяется, цикл завершается, handlers удаляются, SQLite закрывается. Само
+  создание runtime polling не запускает; сеть начинается только внутри явно
+  подтверждённого `adapter.run`.
+- Стратегия send failure намеренно остаётся at-most-once для первого
+  controlled test, а не reliable delivery. Business-result сохраняется до
+  `sendMessage`; при ошибке batch сообщает только `sendFailed: 1`, retry не
+  выполняется, а тот же `message_id` после restart подавляется как duplicate
+  без повторной business operation и без второй отправки. После такого исхода
+  controlled test нужно остановить и диагностировать; transactional outbox и
+  надёжная повторная доставка остаются отдельной будущей задачей.
+- Новые synthetic tests подтверждают exact confirmation gate, disabled runtime,
+  missing-token failure, отсутствие сети и SQLite до confirm, deterministic
+  `/start` через temporary SQLite, безопасные aggregate events, SIGINT/SIGTERM,
+  CLI/server separation и описанное поведение send failure после restart.
+- Реальный Telegram polling, bot access и переписка не запускались. `.env` не
+  открывался; запросы в Telegram, OpenAI, SumUp, Poster и ChoiceQR не
+  выполнялись.
+- Проверки: `npm test` — 308 тестов в 33 файлах прошли;
+  `npm run typecheck`; `npm run build`; `git diff --check` — успешно.
+- Result: complete — локальный runner готов для одного отдельно разрешённого
+  controlled `/start` test; фактические Telegram access, delivery и response
+  остаются неподтверждёнными до этого внешнего запуска.
+- Commit: текущий коммит, содержащий эту запись.
+
 ### Первый локальный Telegram long-polling adapter
 
 - Добавлен transport-neutral `TelegramLongPollingAdapter`: он получает update

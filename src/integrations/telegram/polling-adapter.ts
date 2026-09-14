@@ -38,6 +38,10 @@ export interface TelegramPollResult {
   outcomes: readonly TelegramUpdateOutcome[];
 }
 
+export type TelegramPollObserver = (
+  result: TelegramPollResult,
+) => void | Promise<void>;
+
 interface TelegramPrivateTextMessage {
   chatId: number;
   userId: number;
@@ -96,12 +100,16 @@ export class TelegramLongPollingAdapter {
     };
   }
 
-  async run(signal: AbortSignal): Promise<void> {
+  async run(
+    signal: AbortSignal,
+    observe?: TelegramPollObserver,
+  ): Promise<void> {
     let offset: number | undefined;
     while (!signal.aborted) {
       try {
         const result = await this.pollOnce(offset, signal);
         offset = result.nextOffset ?? offset;
+        await observe?.(result);
       } catch (error) {
         if (signal.aborted) return;
         throw error;
