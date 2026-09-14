@@ -11,6 +11,7 @@ import type {
   TelegramUpdateEnvelope,
 } from "../src/integrations/telegram/api-transport.js";
 import { DeterministicTelegramInterpreter } from "../src/integrations/telegram/deterministic-interpreter.js";
+import { writeLocalMenuSnapshotAtomically } from "../src/menu/local-menu-snapshot.js";
 import {
   installTelegramShutdownHandlers,
   runTelegramPolling,
@@ -68,6 +69,21 @@ function privateStartUpdate(): TelegramUpdateEnvelope {
         from: { id: 501, is_bot: false },
         chat: { id: 501, type: "private" },
         text: "/start",
+      },
+    },
+  };
+}
+
+function privateMenuUpdate(): TelegramUpdateEnvelope {
+  return {
+    updateId: 701,
+    payload: {
+      update_id: 701,
+      message: {
+        message_id: 72,
+        from: { id: 502, is_bot: false },
+        chat: { id: 502, type: "private" },
+        text: "/menu",
       },
     },
   };
@@ -250,6 +266,63 @@ describe("controlled Telegram polling runner", () => {
       ignored: 1,
       processingFailed: 0,
       sendFailed: 0,
+    });
+  });
+
+  it("renders the validated local snapshot for the deterministic menu command", async () => {
+    const databasePath = temporaryDatabasePath();
+    const menuSnapshotPath = join(databasePath, "..", "menu.json");
+    writeLocalMenuSnapshotAtomically(menuSnapshotPath, [
+      {
+        id: "synthetic-fixture-item",
+        name: "Synthetic Fixture Item",
+        unitPriceCents: 123,
+        available: true,
+      },
+    ]);
+    const transport = new FakeTelegramTransport([privateMenuUpdate()]);
+    const controller = new AbortController();
+
+    await runTelegramPolling({
+      argv: [TELEGRAM_POLLING_CONFIRMATION],
+      environment: enabledEnvironment(),
+      signal: controller.signal,
+      databasePath,
+      menuSnapshotPath,
+      transport,
+      onEvent: (event) => {
+        if (event.status === "batch") controller.abort();
+      },
+    });
+
+    expect(transport.sendMessage).toHaveBeenCalledWith({
+      chatId: 502,
+      text: "Меню:\n• Synthetic Fixture Item — €1.23",
+      signal: controller.signal,
+    });
+  });
+
+  it("renders menu unavailable without fallback when the snapshot is missing", async () => {
+    const databasePath = temporaryDatabasePath();
+    const transport = new FakeTelegramTransport([privateMenuUpdate()]);
+    const controller = new AbortController();
+
+    await runTelegramPolling({
+      argv: [TELEGRAM_POLLING_CONFIRMATION],
+      environment: enabledEnvironment(),
+      signal: controller.signal,
+      databasePath,
+      menuSnapshotPath: join(databasePath, "..", "missing-menu.json"),
+      transport,
+      onEvent: (event) => {
+        if (event.status === "batch") controller.abort();
+      },
+    });
+
+    expect(transport.sendMessage).toHaveBeenCalledWith({
+      chatId: 502,
+      text: "Меню сейчас недоступно.",
+      signal: controller.signal,
     });
   });
 

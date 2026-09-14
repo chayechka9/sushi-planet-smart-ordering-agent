@@ -5,6 +5,53 @@
 
 ## 14 сентября 2026
 
+### Validated local menu snapshot для controlled Telegram runner
+
+- Telegram polling runner больше не использует жёстко заданное пустое меню.
+  Existing deterministic conversation/order core получает
+  `ValidatedLocalMenuSnapshotProvider`, который читает только ignored локальный
+  `.telegram-menu-snapshot.json`; `src/server.ts` не изменён и остаётся
+  health-only.
+- Snapshot имеет строгую allowlisted schema: версия, ISO timestamp и массив
+  только из item ID, name, integer EUR cents и availability. Missing, пустой,
+  слишком большой, повреждённый, содержащий неожиданные поля или иначе
+  невалидный файл преобразуется в пустой menu snapshot. Поэтому `/menu`
+  отвечает `Меню сейчас недоступно.` без выдуманных данных, Poster refresh,
+  внешнего fallback или автоматического подключения других runtimes.
+- Локальный snapshot и его temporary-файлы явно добавлены в `.gitignore`.
+  Writer сначала валидирует непустой normalized document, затем пишет
+  owner-only temporary file в том же каталоге, выполняет `fsync` и atomic
+  rename. При ошибке temporary file удаляется, а прежний snapshot не
+  заменяется частичным или пустым содержимым.
+- Добавлена отдельная npm-команда `telegram:menu:refresh`. Она предназначена
+  только для будущего controlled read-only чтения Poster settings и menu через
+  существующий `PosterClient`; polling при этом не запускается. До любого
+  client/network action требуются единственный точный аргумент
+  `--confirm-poster-menu-refresh` и локальные `POSTER_ACCOUNT`, `POSTER_TOKEN`,
+  `POSTER_MENU_SPOT_ID`. Spot обязателен, чтобы не угадывать цену и visibility
+  при нескольких точках продаж.
+- Refresh сначала сверяет configured account и EUR currency, выбирает только
+  явно указанный spot, нормализует price/availability и сохраняет только
+  allowlisted snapshot. Raw API response, category/provider metadata, token,
+  персональные данные, платежи и заказы не сохраняются и не выводятся; CLI
+  сообщает только safe status/error code и aggregate item count.
+- Synthetic unit/integration tests подтверждают missing/empty/corrupt/valid
+  snapshot, запрет extra/raw fields, сохранение прежнего файла при невалидной
+  замене, вывод `/menu` из валидного snapshot, unavailable response без
+  fallback, exact refresh confirmation/config gates, отсутствие global network
+  без confirm, ровно два injected read-only GET при успешном fake refresh и
+  separation от polling и health server.
+- В этой задаче refresh CLI и Telegram polling не запускались. Реальные запросы
+  к Telegram, Poster, OpenAI, SumUp и ChoiceQR не выполнялись; `.env` не
+  открывался. Достоверный локальный snapshot ещё не создан: для него потребуется
+  отдельное явное разрешение на один Poster refresh.
+- Проверки: `npm test` — 322 теста в 35 файлах прошли;
+  `npm run typecheck`; `npm run build`; `git diff --check` — успешно.
+- Result: complete — безопасное локальное wiring и gated refresh CLI готовы;
+  фактическое Poster-чтение и содержимое реального snapshot остаются
+  неподтверждёнными.
+- Commit: текущий коммит, содержащий эту запись.
+
 ### Controlled deterministic Telegram polling CLI
 
 - Добавлена отдельная npm-команда `telegram:poll` и CLI wrapper

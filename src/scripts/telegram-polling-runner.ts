@@ -11,6 +11,10 @@ import { createOrder } from "../domain/order.js";
 import type { TelegramApiTransport } from "../integrations/telegram/api-transport.js";
 import { DeterministicTelegramInterpreter } from "../integrations/telegram/deterministic-interpreter.js";
 import type { TelegramPollResult } from "../integrations/telegram/polling-adapter.js";
+import {
+  defaultLocalMenuSnapshotPath,
+  ValidatedLocalMenuSnapshotProvider,
+} from "../menu/local-menu-snapshot.js";
 import { SqliteConversationStateStore } from "../storage/sqlite/conversation-state-store.js";
 
 export const TELEGRAM_POLLING_CONFIRMATION = "--confirm-telegram-polling";
@@ -42,6 +46,7 @@ export interface TelegramPollingRunnerOptions {
   environment?: NodeJS.ProcessEnv;
   signal: AbortSignal;
   databasePath?: string;
+  menuSnapshotPath?: string;
   transport?: TelegramApiTransport;
   onEvent?: (event: TelegramPollingRunnerEvent) => void | Promise<void>;
 }
@@ -78,7 +83,9 @@ export async function runTelegramPolling(
     );
     const conversationAgent = new LocalConversationAgentService({
       stateStore,
-      menuProvider: { getMenuSnapshot: () => [] },
+      menuProvider: new ValidatedLocalMenuSnapshotProvider(
+        options.menuSnapshotPath ?? defaultLocalMenuSnapshotPath(),
+      ),
       deliveryFeePolicy: {
         getDeliveryFeeCents: () => {
           throw new Error("Delivery is unavailable in Telegram test mode");
