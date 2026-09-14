@@ -5,6 +5,48 @@
 
 ## 14 сентября 2026
 
+### Локальная корзина для controlled Telegram menu flow
+
+- Deterministic Telegram interpreter теперь поддерживает только bounded
+  `/add <номер> [количество]` в дополнение к существующим `/menu`, `/cart` и
+  `/start`. Interpreter не создаёт собственную корзину и не считает суммы: он
+  разрешает номер в authoritative item ID из validated local snapshot и
+  передаёт существующему conversation core allowlisted `add_item` command.
+- Добавлена единая Telegram menu-numbering projection, которую совместно
+  используют interpreter и renderer. Только available items получают
+  последовательные номера; до нумерации они детерминированно сортируются по
+  стабильному menu item ID, поэтому отображённый номер и `/add` используют одно
+  соответствие. Недоступные позиции не показываются и не адресуются номером.
+- `/menu` теперь показывает нумерованный список из validated snapshot и короткую
+  подсказку `/add <номер> [количество]`. `/add <номер>` использует core default
+  quantity `1`; положительное safe-integer количество можно передать вторым
+  аргументом. После успешного добавления и по `/cart` Telegram отображает
+  существующий core cart view с line totals и общим EUR total.
+- Пустой/отсутствующий/невалидный snapshot, отсутствующий номер, `0`,
+  non-integer, неизвестная позиция или лишние аргументы возвращают безопасную
+  инструкцию использовать `/menu` и `/add`; `add_item` в этих случаях не
+  вызывается и корзина не меняется. Остальные неизвестные команды получают
+  список только доступных controlled-команд.
+- SQLite identity/message duplicate guards не менялись. Повтор одного Telegram
+  message ID подавляется до interpreter/core, не добавляет позицию повторно и
+  не отправляет второй ответ; сохранённая корзина восстанавливается после
+  закрытия и повторного открытия temporary SQLite.
+- Fake-transport integration tests покрывают `/menu`, стабильный порядок и
+  исключение unavailable fixture, успешный `/add`, optional quantity, invalid
+  inputs, отсутствующий snapshot, duplicate в одном batch, restart SQLite и
+  `/cart` с итогом из core. Все menu/order данные в tests остаются явно
+  synthetic fixtures и не заявлены как данные Sushi Planet.
+- Адрес, телефон, delivery, checkout, payment и Poster order commands не
+  добавлялись. `src/server.ts`, runtime gates, HTTP transport, local snapshot,
+  OpenAI, SumUp, Poster и ChoiceQR не подключались и не менялись.
+- В этой задаче Telegram polling не запускался, `.env` и фактический локальный
+  snapshot не открывались, внешние запросы не выполнялись.
+- Проверки: `npm test` — 335 тестов в 35 файлах прошли;
+  `npm run typecheck`; `npm run build`; `git diff --check` — успешно.
+- Result: complete — локальный controlled Telegram flow готов к отдельному
+  разрешённому тесту `/menu` → `/add` → `/cart`; реальный запуск не выполнен.
+- Commit: текущий коммит, содержащий эту запись.
+
 ### Allowlisted diagnostics для Telegram polling failures
 
 - `TelegramApiTransportError` теперь содержит только фиксированный безопасный

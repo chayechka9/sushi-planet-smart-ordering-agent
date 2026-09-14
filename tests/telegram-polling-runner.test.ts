@@ -79,18 +79,55 @@ function privateStartUpdate(): TelegramUpdateEnvelope {
 }
 
 function privateMenuUpdate(): TelegramUpdateEnvelope {
-  return {
+  return privateCommandUpdate({
     updateId: 701,
+    messageId: 72,
+    text: "/menu",
+  });
+}
+
+function privateCommandUpdate(input: {
+  updateId: number;
+  messageId: number;
+  text: string;
+}): TelegramUpdateEnvelope {
+  return {
+    updateId: input.updateId,
     payload: {
-      update_id: 701,
+      update_id: input.updateId,
       message: {
-        message_id: 72,
+        message_id: input.messageId,
         from: { id: 502, is_bot: false },
         chat: { id: 502, type: "private" },
-        text: "/menu",
+        text: input.text,
       },
     },
   };
+}
+
+function writeSyntheticMenu(databasePath: string): string {
+  const menuSnapshotPath = join(databasePath, "..", "menu.json");
+  writeLocalMenuSnapshotAtomically(menuSnapshotPath, [
+    {
+      id: "synthetic-item-beta",
+      name: "Synthetic Fixture Beta",
+      unitPriceCents: 250,
+      available: true,
+    },
+    {
+      id: "synthetic-item-alpha",
+      name: "Synthetic Fixture Alpha",
+      unitPriceCents: 123,
+      available: true,
+    },
+    {
+      id: "synthetic-item-disabled",
+      name: "Synthetic Disabled Fixture",
+      unitPriceCents: 999,
+      available: false,
+    },
+  ]);
+  return menuSnapshotPath;
 }
 
 function enabledEnvironment(): NodeJS.ProcessEnv {
@@ -301,8 +338,213 @@ describe("controlled Telegram polling runner", () => {
 
     expect(transport.sendMessage).toHaveBeenCalledWith({
       chatId: 502,
-      text: "Меню:\n• Synthetic Fixture Item — €1.23",
+      text: "Меню:\n1. Synthetic Fixture Item — €1.23\nДобавить: /add <номер> [количество]",
       signal: controller.signal,
+    });
+  });
+
+  it("numbers the menu and uses the existing core for add quantity and cart totals", async () => {
+    const databasePath = temporaryDatabasePath();
+    const menuSnapshotPath = writeSyntheticMenu(databasePath);
+    const transport = new FakeTelegramTransport([
+      privateCommandUpdate({ updateId: 710, messageId: 80, text: "/menu" }),
+      privateCommandUpdate({ updateId: 711, messageId: 81, text: "/add 2 3" }),
+      privateCommandUpdate({ updateId: 712, messageId: 82, text: "/cart" }),
+    ]);
+    const controller = new AbortController();
+    const events: TelegramPollingRunnerEvent[] = [];
+
+    const summary = await runTelegramPolling({
+      argv: [TELEGRAM_POLLING_CONFIRMATION],
+      environment: enabledEnvironment(),
+      signal: controller.signal,
+      databasePath,
+      menuSnapshotPath,
+      transport,
+      onEvent: (event) => {
+        events.push(event);
+        if (event.status === "batch") controller.abort();
+      },
+    });
+
+    expect(summary).toEqual({ status: "stopped" });
+    expect(events.at(-1)).toEqual({
+      status: "batch",
+      received: 3,
+      replied: 3,
+      ignored: 0,
+      processingFailed: 0,
+      sendFailed: 0,
+    });
+    expect(transport.sendMessage).toHaveBeenNthCalledWith(1, {
+      chatId: 502,
+      text: [
+        "Меню:",
+        "1. Synthetic Fixture Alpha — €1.23",
+        "2. Synthetic Fixture Beta — €2.50",
+        "Добавить: /add <номер> [количество]",
+      ].join("\n"),
+      signal: controller.signal,
+    });
+    const expectedCart =
+      "Корзина:\n• Synthetic Fixture Beta × 3 — €7.50\nИтого: €7.50";
+    expect(transport.sendMessage).toHaveBeenNthCalledWith(2, {
+      chatId: 502,
+      text: expectedCart,
+      signal: controller.signal,
+    });
+    expect(transport.sendMessage).toHaveBeenNthCalledWith(3, {
+      chatId: 502,
+      text: expectedCart,
+      signal: controller.signal,
+    });
+  });
+
+  it("explains invalid add commands without changing the cart", async () => {
+    const databasePath = temporaryDatabasePath();
+    const menuSnapshotPath = writeSyntheticMenu(databasePath);
+    const transport = new FakeTelegramTransport([
+      privateCommandUpdate({ updateId: 720, messageId: 90, text: "/add" }),
+      privateCommandUpdate({ updateId: 721, messageId: 91, text: "/add 9" }),
+      privateCommandUpdate({ updateId: 722, messageId: 92, text: "/add 1 0" }),
+      privateCommandUpdate({ updateId: 723, messageId: 93, text: "/add nope" }),
+      privateCommandUpdate({ updateId: 724, messageId: 94, text: "/checkout" }),
+      privateCommandUpdate({ updateId: 725, messageId: 95, text: "/cart" }),
+    ]);
+    const controller = new AbortController();
+
+    await runTelegramPolling({
+      argv: [TELEGRAM_POLLING_CONFIRMATION],
+      environment: enabledEnvironment(),
+      signal: controller.signal,
+      databasePath,
+      menuSnapshotPath,
+      transport,
+      onEvent: (event) => {
+        if (event.status === "batch") controller.abort();
+      },
+    });
+
+    const explanation =
+      "Не удалось добавить позицию. Используйте /menu, затем /add <номер> [количество].";
+    for (let call = 1; call <= 4; call += 1) {
+      expect(transport.sendMessage).toHaveBeenNthCalledWith(call, {
+        chatId: 502,
+        text: explanation,
+        signal: controller.signal,
+      });
+    }
+    expect(transport.sendMessage).toHaveBeenNthCalledWith(5, {
+      chatId: 502,
+      text: "Доступные команды: /menu, /add <номер> [количество], /cart.",
+      signal: controller.signal,
+    });
+    expect(transport.sendMessage).toHaveBeenNthCalledWith(6, {
+      chatId: 502,
+      text: "Корзина:\nКорзина пуста.\nИтого: €0.00",
+      signal: controller.signal,
+    });
+  });
+
+  it("keeps the cart unchanged when no validated menu is available", async () => {
+    const databasePath = temporaryDatabasePath();
+    const transport = new FakeTelegramTransport([
+      privateCommandUpdate({ updateId: 730, messageId: 100, text: "/add 1" }),
+      privateCommandUpdate({ updateId: 731, messageId: 101, text: "/cart" }),
+    ]);
+    const controller = new AbortController();
+
+    await runTelegramPolling({
+      argv: [TELEGRAM_POLLING_CONFIRMATION],
+      environment: enabledEnvironment(),
+      signal: controller.signal,
+      databasePath,
+      menuSnapshotPath: join(databasePath, "..", "missing-menu.json"),
+      transport,
+      onEvent: (event) => {
+        if (event.status === "batch") controller.abort();
+      },
+    });
+
+    expect(transport.sendMessage).toHaveBeenNthCalledWith(1, {
+      chatId: 502,
+      text: "Не удалось добавить позицию. Используйте /menu, затем /add <номер> [количество].",
+      signal: controller.signal,
+    });
+    expect(transport.sendMessage).toHaveBeenNthCalledWith(2, {
+      chatId: 502,
+      text: "Корзина:\nКорзина пуста.\nИтого: €0.00",
+      signal: controller.signal,
+    });
+  });
+
+  it("does not add twice for a duplicate message and preserves the cart after restart", async () => {
+    const databasePath = temporaryDatabasePath();
+    const menuSnapshotPath = writeSyntheticMenu(databasePath);
+    const addUpdate = privateCommandUpdate({
+      updateId: 740,
+      messageId: 110,
+      text: "/add 1 2",
+    });
+    const firstTransport = new FakeTelegramTransport([addUpdate, addUpdate]);
+    const firstController = new AbortController();
+    const firstEvents: TelegramPollingRunnerEvent[] = [];
+
+    await runTelegramPolling({
+      argv: [TELEGRAM_POLLING_CONFIRMATION],
+      environment: enabledEnvironment(),
+      signal: firstController.signal,
+      databasePath,
+      menuSnapshotPath,
+      transport: firstTransport,
+      onEvent: (event) => {
+        firstEvents.push(event);
+        if (event.status === "batch") firstController.abort();
+      },
+    });
+
+    expect(firstEvents.at(-1)).toEqual({
+      status: "batch",
+      received: 2,
+      replied: 1,
+      ignored: 1,
+      processingFailed: 0,
+      sendFailed: 0,
+    });
+    expect(firstTransport.sendMessage).toHaveBeenCalledOnce();
+
+    const restartedTransport = new FakeTelegramTransport([
+      addUpdate,
+      privateCommandUpdate({ updateId: 741, messageId: 111, text: "/cart" }),
+    ]);
+    const restartedController = new AbortController();
+    const restartedEvents: TelegramPollingRunnerEvent[] = [];
+    await runTelegramPolling({
+      argv: [TELEGRAM_POLLING_CONFIRMATION],
+      environment: enabledEnvironment(),
+      signal: restartedController.signal,
+      databasePath,
+      menuSnapshotPath,
+      transport: restartedTransport,
+      onEvent: (event) => {
+        restartedEvents.push(event);
+        if (event.status === "batch") restartedController.abort();
+      },
+    });
+
+    expect(restartedEvents.at(-1)).toEqual({
+      status: "batch",
+      received: 2,
+      replied: 1,
+      ignored: 1,
+      processingFailed: 0,
+      sendFailed: 0,
+    });
+    expect(restartedTransport.sendMessage).toHaveBeenCalledOnce();
+    expect(restartedTransport.sendMessage).toHaveBeenCalledWith({
+      chatId: 502,
+      text: "Корзина:\n• Synthetic Fixture Alpha × 2 — €2.46\nИтого: €2.46",
+      signal: restartedController.signal,
     });
   });
 
@@ -454,7 +696,28 @@ describe("controlled Telegram polling runner", () => {
 });
 
 describe("deterministic Telegram interpreter", () => {
-  const interpreter = new DeterministicTelegramInterpreter();
+  const interpreter = new DeterministicTelegramInterpreter({
+    getMenuSnapshot: () => [
+      {
+        id: "synthetic-item-beta",
+        name: "Synthetic Fixture Beta",
+        unitPriceCents: 250,
+        available: true,
+      },
+      {
+        id: "synthetic-item-alpha",
+        name: "Synthetic Fixture Alpha",
+        unitPriceCents: 123,
+        available: true,
+      },
+      {
+        id: "synthetic-item-disabled",
+        name: "Synthetic Disabled Fixture",
+        unitPriceCents: 999,
+        available: false,
+      },
+    ],
+  });
   const context = {
     conversationId: "synthetic",
     identity: { channel: "telegram", userId: "synthetic" },
@@ -480,6 +743,22 @@ describe("deterministic Telegram interpreter", () => {
     await expect(interpreter.interpret(context, "ПОКАЖИ МЕНЮ")).resolves.toEqual({
       kind: "command",
       command: { type: "show_menu" },
+    });
+    await expect(interpreter.interpret(context, "/add 1")).resolves.toEqual({
+      kind: "command",
+      command: { type: "add_item", menuItemId: "synthetic-item-alpha" },
+    });
+    await expect(interpreter.interpret(context, "/add 2 3")).resolves.toEqual({
+      kind: "command",
+      command: {
+        type: "add_item",
+        menuItemId: "synthetic-item-beta",
+        quantity: 3,
+      },
+    });
+    await expect(interpreter.interpret(context, "/add 0")).resolves.toEqual({
+      kind: "needs_clarification",
+      reason: "missing_information",
     });
     await expect(interpreter.interpret(context, "создай оплату")).resolves.toEqual({
       kind: "needs_clarification",

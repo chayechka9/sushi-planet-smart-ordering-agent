@@ -161,7 +161,7 @@ describe("Telegram long-polling adapter", () => {
     expect(transport.getUpdates).toHaveBeenCalledWith({ timeoutSeconds: 25 });
     expect(transport.sendMessage).toHaveBeenCalledWith({
       chatId: 501,
-      text: "Меню:\n• Synthetic Roll — €12.50",
+      text: "Меню:\n1. Synthetic Roll — €12.50\nДобавить: /add <номер> [количество]",
     });
     expect(harness.interpreter.interpret).toHaveBeenCalledOnce();
     expect(

@@ -89,11 +89,12 @@ export async function runTelegramPolling(
       options.databasePath ??
         resolve(process.cwd(), "telegram-conversations.sqlite"),
     );
+    const menuProvider = new ValidatedLocalMenuSnapshotProvider(
+      options.menuSnapshotPath ?? defaultLocalMenuSnapshotPath(),
+    );
     const conversationAgent = new LocalConversationAgentService({
       stateStore,
-      menuProvider: new ValidatedLocalMenuSnapshotProvider(
-        options.menuSnapshotPath ?? defaultLocalMenuSnapshotPath(),
-      ),
+      menuProvider,
       deliveryFeePolicy: {
         getDeliveryFeeCents: () => {
           throw new Error("Delivery is unavailable in Telegram test mode");
@@ -113,7 +114,7 @@ export async function runTelegramPolling(
       createOrder,
     });
     const conversation = new AIConversationLayerService({
-      interpreter: new DeterministicTelegramInterpreter(),
+      interpreter: new DeterministicTelegramInterpreter(menuProvider),
       conversationAgent,
       stateStore,
     });

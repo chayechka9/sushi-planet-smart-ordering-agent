@@ -12,6 +12,7 @@ import type {
   TelegramApiTransport,
   TelegramUpdateEnvelope,
 } from "./api-transport.js";
+import { numberAvailableTelegramMenuItems } from "./menu-numbering.js";
 
 export interface TelegramConversationHandler {
   handle(input: AIConversationLayerInput): Promise<AIConversationLayerResponse>;
@@ -215,8 +216,16 @@ function parsePrivateTextMessage(
 
 function renderTelegramResponse(response: AIConversationLayerResponse): string {
   switch (response.kind) {
-    case "needs_clarification":
-      return "Уточните, пожалуйста, что вы хотите заказать.";
+    case "needs_clarification": {
+      switch (response.reason) {
+        case "unsupported":
+          return "Доступные команды: /menu, /add <номер> [количество], /cart.";
+        case "missing_information":
+          return "Не удалось добавить позицию. Используйте /menu, затем /add <номер> [количество].";
+        case "ambiguous":
+          return "Уточните, пожалуйста, что вы хотите заказать.";
+      }
+    }
     case "error":
       return "Не удалось обработать сообщение. Попробуйте сформулировать запрос иначе.";
     case "command_applied":
@@ -227,14 +236,16 @@ function renderTelegramResponse(response: AIConversationLayerResponse): string {
 function renderConversationResponse(response: ConversationAgentResponse): string {
   switch (response.kind) {
     case "menu": {
-      const available = response.menu.filter((item) => item.available);
-      if (available.length === 0) return "Меню сейчас недоступно.";
+      const numbered = numberAvailableTelegramMenuItems(response.menu);
+      if (numbered.length === 0) return "Меню сейчас недоступно.";
       return limitTelegramText(
         [
           "Меню:",
-          ...available.map(
-            (item) => `• ${item.name} — ${formatEuro(item.unitPriceCents)}`,
+          ...numbered.map(
+            ({ number, item }) =>
+              `${number}. ${item.name} — ${formatEuro(item.unitPriceCents)}`,
           ),
+          "Добавить: /add <номер> [количество]",
         ].join("\n"),
       );
     }
