@@ -134,6 +134,7 @@ function enabledEnvironment(): NodeJS.ProcessEnv {
   return {
     TELEGRAM_RUNTIME_ENABLED: "true",
     TELEGRAM_BOT_TOKEN: syntheticToken,
+    TELEGRAM_DELIVERY_FEE_CENTS: "350",
   };
 }
 
@@ -231,7 +232,7 @@ describe("controlled Telegram polling runner", () => {
     expect(transport.getUpdates).toHaveBeenCalledOnce();
     expect(transport.sendMessage).toHaveBeenCalledWith({
       chatId: 501,
-      text: "Корзина:\nКорзина пуста.\nИтого: €0.00",
+      text: "Корзина:\nКорзина пуста.\nПолучение: не выбрано\nИтого: €0.00\nУбрать: /remove <номер> [количество]",
       signal: controller.signal,
     });
 
@@ -387,7 +388,7 @@ describe("controlled Telegram polling runner", () => {
       signal: controller.signal,
     });
     const expectedCart =
-      "Корзина:\n• Synthetic Fixture Beta × 3 — €7.50\nИтого: €7.50";
+      "Корзина:\n1. Synthetic Fixture Beta × 3 — €7.50\nПолучение: не выбрано\nИтого: €7.50\nУбрать: /remove <номер> [количество]";
     expect(transport.sendMessage).toHaveBeenNthCalledWith(2, {
       chatId: 502,
       text: expectedCart,
@@ -426,7 +427,7 @@ describe("controlled Telegram polling runner", () => {
     });
 
     const explanation =
-      "Не удалось добавить позицию. Используйте /menu, затем /add <номер> [количество].";
+      "Проверьте формат и порядок команд: /add <номер> [количество], /remove <номер из корзины> [количество], /name <имя>, /phone <телефон>, /delivery перед /address <улица> | <город> | <индекс>.";
     for (let call = 1; call <= 4; call += 1) {
       expect(transport.sendMessage).toHaveBeenNthCalledWith(call, {
         chatId: 502,
@@ -436,12 +437,12 @@ describe("controlled Telegram polling runner", () => {
     }
     expect(transport.sendMessage).toHaveBeenNthCalledWith(5, {
       chatId: 502,
-      text: "Доступные команды: /menu, /add <номер> [количество], /cart.",
+      text: "Доступные команды: /menu, /add <номер> [количество], /cart, /remove <номер> [количество], /pickup, /delivery, /name <имя>, /phone <телефон>, /address <улица> | <город> | <индекс>, /review.",
       signal: controller.signal,
     });
     expect(transport.sendMessage).toHaveBeenNthCalledWith(6, {
       chatId: 502,
-      text: "Корзина:\nКорзина пуста.\nИтого: €0.00",
+      text: "Корзина:\nКорзина пуста.\nПолучение: не выбрано\nИтого: €0.00\nУбрать: /remove <номер> [количество]",
       signal: controller.signal,
     });
   });
@@ -468,12 +469,12 @@ describe("controlled Telegram polling runner", () => {
 
     expect(transport.sendMessage).toHaveBeenNthCalledWith(1, {
       chatId: 502,
-      text: "Не удалось добавить позицию. Используйте /menu, затем /add <номер> [количество].",
+      text: "Проверьте формат и порядок команд: /add <номер> [количество], /remove <номер из корзины> [количество], /name <имя>, /phone <телефон>, /delivery перед /address <улица> | <город> | <индекс>.",
       signal: controller.signal,
     });
     expect(transport.sendMessage).toHaveBeenNthCalledWith(2, {
       chatId: 502,
-      text: "Корзина:\nКорзина пуста.\nИтого: €0.00",
+      text: "Корзина:\nКорзина пуста.\nПолучение: не выбрано\nИтого: €0.00\nУбрать: /remove <номер> [количество]",
       signal: controller.signal,
     });
   });
@@ -543,8 +544,257 @@ describe("controlled Telegram polling runner", () => {
     expect(restartedTransport.sendMessage).toHaveBeenCalledOnce();
     expect(restartedTransport.sendMessage).toHaveBeenCalledWith({
       chatId: 502,
-      text: "Корзина:\n• Synthetic Fixture Alpha × 2 — €2.46\nИтого: €2.46",
+      text: "Корзина:\n1. Synthetic Fixture Alpha × 2 — €2.46\nПолучение: не выбрано\nИтого: €2.46\nУбрать: /remove <номер> [количество]",
       signal: restartedController.signal,
+    });
+  });
+
+  it("removes a bounded quantity once and can remove the full cart line", async () => {
+    const databasePath = temporaryDatabasePath();
+    const menuSnapshotPath = writeSyntheticMenu(databasePath);
+    const removeUpdate = privateCommandUpdate({
+      updateId: 751,
+      messageId: 121,
+      text: "/remove 1 1",
+    });
+    const transport = new FakeTelegramTransport([
+      privateCommandUpdate({ updateId: 750, messageId: 120, text: "/add 1 3" }),
+      removeUpdate,
+      removeUpdate,
+      privateCommandUpdate({ updateId: 752, messageId: 122, text: "/cart" }),
+      privateCommandUpdate({ updateId: 753, messageId: 123, text: "/remove 1" }),
+      privateCommandUpdate({ updateId: 754, messageId: 124, text: "/cart" }),
+    ]);
+    const controller = new AbortController();
+    const events: TelegramPollingRunnerEvent[] = [];
+
+    await runTelegramPolling({
+      argv: [TELEGRAM_POLLING_CONFIRMATION],
+      environment: enabledEnvironment(),
+      signal: controller.signal,
+      databasePath,
+      menuSnapshotPath,
+      transport,
+      onEvent: (event) => {
+        events.push(event);
+        if (event.status === "batch") controller.abort();
+      },
+    });
+
+    expect(events.at(-1)).toEqual({
+      status: "batch",
+      received: 6,
+      replied: 5,
+      ignored: 1,
+      processingFailed: 0,
+      sendFailed: 0,
+    });
+    expect(transport.sendMessage).toHaveBeenNthCalledWith(3, {
+      chatId: 502,
+      text: "Корзина:\n1. Synthetic Fixture Alpha × 2 — €2.46\nПолучение: не выбрано\nИтого: €2.46\nУбрать: /remove <номер> [количество]",
+      signal: controller.signal,
+    });
+    expect(transport.sendMessage).toHaveBeenNthCalledWith(5, {
+      chatId: 502,
+      text: "Корзина:\nКорзина пуста.\nПолучение: не выбрано\nИтого: €0.00\nУбрать: /remove <номер> [количество]",
+      signal: controller.signal,
+    });
+  });
+
+  it("collects pickup contact fields and reviews without requiring an address", async () => {
+    const databasePath = temporaryDatabasePath();
+    const menuSnapshotPath = writeSyntheticMenu(databasePath);
+    const transport = new FakeTelegramTransport([
+      privateCommandUpdate({ updateId: 760, messageId: 130, text: "/add 1" }),
+      privateCommandUpdate({ updateId: 761, messageId: 131, text: "/pickup" }),
+      privateCommandUpdate({
+        updateId: 762,
+        messageId: 132,
+        text: "/name Synthetic Tester",
+      }),
+      privateCommandUpdate({
+        updateId: 763,
+        messageId: 133,
+        text: "/phone +000 000 0000",
+      }),
+      privateCommandUpdate({ updateId: 764, messageId: 134, text: "/review" }),
+    ]);
+    const controller = new AbortController();
+
+    await runTelegramPolling({
+      argv: [TELEGRAM_POLLING_CONFIRMATION],
+      environment: enabledEnvironment(),
+      signal: controller.signal,
+      databasePath,
+      menuSnapshotPath,
+      transport,
+      onEvent: (event) => {
+        if (event.status === "batch") controller.abort();
+      },
+    });
+
+    expect(transport.sendMessage).toHaveBeenNthCalledWith(5, {
+      chatId: 502,
+      text: "Проверьте заказ:\n1. Synthetic Fixture Alpha × 1 — €1.23\nПолучение: самовывоз\nИтого: €1.23\nОбязательные данные заполнены.",
+      signal: controller.signal,
+    });
+    const sentOutput = JSON.stringify(transport.sendMessage.mock.calls);
+    expect(sentOutput).not.toContain("Synthetic Tester");
+    expect(sentOutput).not.toContain("+0000000000");
+    const store = new SqliteConversationStateStore(databasePath, {
+      readOnly: true,
+    });
+    try {
+      expect(store.findByConversationId("telegram:chat:502")).toMatchObject({
+        fulfilmentChoice: "pickup",
+        customer: {
+          firstName: "Synthetic Tester",
+          phone: "+0000000000",
+        },
+      });
+    } finally {
+      store.close();
+    }
+  });
+
+  it("persists delivery fields and review state across a SQLite restart", async () => {
+    const databasePath = temporaryDatabasePath();
+    const menuSnapshotPath = writeSyntheticMenu(databasePath);
+    const firstTransport = new FakeTelegramTransport([
+      privateCommandUpdate({ updateId: 770, messageId: 140, text: "/add 1" }),
+      privateCommandUpdate({ updateId: 771, messageId: 141, text: "/delivery" }),
+      privateCommandUpdate({
+        updateId: 772,
+        messageId: 142,
+        text: "/name Synthetic Tester",
+      }),
+      privateCommandUpdate({
+        updateId: 773,
+        messageId: 143,
+        text: "/phone +000 000 0000",
+      }),
+      privateCommandUpdate({
+        updateId: 774,
+        messageId: 144,
+        text: "/address Fixture Lane | Fixture City | TEST CODE",
+      }),
+    ]);
+    const firstController = new AbortController();
+    await runTelegramPolling({
+      argv: [TELEGRAM_POLLING_CONFIRMATION],
+      environment: enabledEnvironment(),
+      signal: firstController.signal,
+      databasePath,
+      menuSnapshotPath,
+      transport: firstTransport,
+      onEvent: (event) => {
+        if (event.status === "batch") firstController.abort();
+      },
+    });
+
+    const restartedTransport = new FakeTelegramTransport([
+      privateCommandUpdate({ updateId: 775, messageId: 145, text: "/review" }),
+    ]);
+    const restartedController = new AbortController();
+    await runTelegramPolling({
+      argv: [TELEGRAM_POLLING_CONFIRMATION],
+      environment: enabledEnvironment(),
+      signal: restartedController.signal,
+      databasePath,
+      menuSnapshotPath,
+      transport: restartedTransport,
+      onEvent: (event) => {
+        if (event.status === "batch") restartedController.abort();
+      },
+    });
+
+    expect(restartedTransport.sendMessage).toHaveBeenCalledWith({
+      chatId: 502,
+      text: "Проверьте заказ:\n1. Synthetic Fixture Alpha × 1 — €1.23\nПолучение: доставка\nИтого: €4.73\nОбязательные данные заполнены.",
+      signal: restartedController.signal,
+    });
+    expect(JSON.stringify(firstTransport.sendMessage.mock.calls)).not.toContain(
+      "Fixture Lane",
+    );
+  });
+
+  it("does not save a delivery address without an explicit local fee", async () => {
+    const databasePath = temporaryDatabasePath();
+    const menuSnapshotPath = writeSyntheticMenu(databasePath);
+    const environment = enabledEnvironment();
+    delete environment.TELEGRAM_DELIVERY_FEE_CENTS;
+    const transport = new FakeTelegramTransport([
+      privateCommandUpdate({ updateId: 776, messageId: 146, text: "/delivery" }),
+      privateCommandUpdate({
+        updateId: 777,
+        messageId: 147,
+        text: "/address Fixture Lane | Fixture City | TEST CODE",
+      }),
+      privateCommandUpdate({ updateId: 778, messageId: 148, text: "/review" }),
+    ]);
+    const controller = new AbortController();
+
+    await runTelegramPolling({
+      argv: [TELEGRAM_POLLING_CONFIRMATION],
+      environment,
+      signal: controller.signal,
+      databasePath,
+      menuSnapshotPath,
+      transport,
+      onEvent: (event) => {
+        if (event.status === "batch") controller.abort();
+      },
+    });
+
+    expect(transport.sendMessage).toHaveBeenNthCalledWith(2, {
+      chatId: 502,
+      text: "Не удалось обработать сообщение. Попробуйте сформулировать запрос иначе.",
+      signal: controller.signal,
+    });
+    expect(transport.sendMessage).toHaveBeenNthCalledWith(3, {
+      chatId: 502,
+      text: "Проверьте заказ:\nКорзина пуста.\nПолучение: доставка\nИтого: €0.00\nНужно указать: блюда, имя, телефон, адрес.",
+      signal: controller.signal,
+    });
+  });
+
+  it("rejects malformed order commands without mutating the saved order", async () => {
+    const databasePath = temporaryDatabasePath();
+    const menuSnapshotPath = writeSyntheticMenu(databasePath);
+    const transport = new FakeTelegramTransport([
+      privateCommandUpdate({ updateId: 780, messageId: 150, text: "/add 1 2" }),
+      privateCommandUpdate({ updateId: 781, messageId: 151, text: "/delivery" }),
+      privateCommandUpdate({ updateId: 782, messageId: 152, text: "/remove 9" }),
+      privateCommandUpdate({ updateId: 783, messageId: 153, text: "/remove 1 0" }),
+      privateCommandUpdate({ updateId: 784, messageId: 154, text: "/remove 1 3" }),
+      privateCommandUpdate({ updateId: 785, messageId: 155, text: "/name 123" }),
+      privateCommandUpdate({ updateId: 786, messageId: 156, text: "/phone invalid" }),
+      privateCommandUpdate({
+        updateId: 787,
+        messageId: 157,
+        text: "/address !! | 123 | !!!",
+      }),
+      privateCommandUpdate({ updateId: 788, messageId: 158, text: "/pickup now" }),
+      privateCommandUpdate({ updateId: 789, messageId: 159, text: "/review" }),
+    ]);
+    const controller = new AbortController();
+
+    await runTelegramPolling({
+      argv: [TELEGRAM_POLLING_CONFIRMATION],
+      environment: enabledEnvironment(),
+      signal: controller.signal,
+      databasePath,
+      menuSnapshotPath,
+      transport,
+      onEvent: (event) => {
+        if (event.status === "batch") controller.abort();
+      },
+    });
+
+    expect(transport.sendMessage).toHaveBeenNthCalledWith(10, {
+      chatId: 502,
+      text: "Проверьте заказ:\n1. Synthetic Fixture Alpha × 2 — €2.46\nПолучение: доставка\nИтого: €2.46\nНужно указать: имя, телефон, адрес.",
+      signal: controller.signal,
     });
   });
 
@@ -763,6 +1013,98 @@ describe("deterministic Telegram interpreter", () => {
     await expect(interpreter.interpret(context, "создай оплату")).resolves.toEqual({
       kind: "needs_clarification",
       reason: "unsupported",
+    });
+  });
+
+  it("maps removal, fulfilment, customer fields and review to core commands", async () => {
+    const cartContext = {
+      ...context,
+      conversation: {
+        ...context.conversation,
+        cart: [{ menuItemId: "synthetic-item-alpha", quantity: 3 }],
+        fulfilment: "delivery" as const,
+      },
+    };
+
+    await expect(interpreter.interpret(cartContext, "/remove 1 2")).resolves.toEqual({
+      kind: "command",
+      command: {
+        type: "set_quantity",
+        menuItemId: "synthetic-item-alpha",
+        quantity: 1,
+      },
+    });
+    await expect(interpreter.interpret(cartContext, "/remove 1 3")).resolves.toEqual({
+      kind: "command",
+      command: { type: "remove_item", menuItemId: "synthetic-item-alpha" },
+    });
+    await expect(interpreter.interpret(context, "/pickup")).resolves.toEqual({
+      kind: "command",
+      command: { type: "choose_pickup" },
+    });
+    await expect(interpreter.interpret(context, "/delivery")).resolves.toEqual({
+      kind: "command",
+      command: { type: "choose_delivery" },
+    });
+    await expect(
+      interpreter.interpret(context, "/name Synthetic Tester"),
+    ).resolves.toEqual({
+      kind: "command",
+      command: { type: "set_customer", firstName: "Synthetic Tester" },
+    });
+    await expect(
+      interpreter.interpret(context, "/phone +000 000-0000"),
+    ).resolves.toEqual({
+      kind: "command",
+      command: { type: "set_customer", phone: "+0000000000" },
+    });
+    await expect(
+      interpreter.interpret(
+        cartContext,
+        "/address Fixture Lane | Fixture City | TEST CODE",
+      ),
+    ).resolves.toEqual({
+      kind: "command",
+      command: {
+        type: "set_delivery_address",
+        address: {
+          line1: "Fixture Lane",
+          city: "Fixture City",
+          postalCode: "TEST CODE",
+        },
+      },
+    });
+    await expect(interpreter.interpret(context, "/review")).resolves.toEqual({
+      kind: "command",
+      command: { type: "review_order" },
+    });
+  });
+
+  it("rejects malformed values before they reach the order core", async () => {
+    await expect(interpreter.interpret(context, "/remove 1")).resolves.toEqual({
+      kind: "needs_clarification",
+      reason: "missing_information",
+    });
+    await expect(interpreter.interpret(context, "/name 123")).resolves.toEqual({
+      kind: "needs_clarification",
+      reason: "missing_information",
+    });
+    await expect(interpreter.interpret(context, "/phone invalid")).resolves.toEqual({
+      kind: "needs_clarification",
+      reason: "missing_information",
+    });
+    await expect(
+      interpreter.interpret(
+        context,
+        "/address Fixture Lane | Fixture City | TEST CODE",
+      ),
+    ).resolves.toEqual({
+      kind: "needs_clarification",
+      reason: "missing_information",
+    });
+    await expect(interpreter.interpret(context, "/review now")).resolves.toEqual({
+      kind: "needs_clarification",
+      reason: "missing_information",
     });
   });
 });

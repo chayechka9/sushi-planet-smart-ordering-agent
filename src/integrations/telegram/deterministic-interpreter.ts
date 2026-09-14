@@ -16,15 +16,35 @@ export class DeterministicTelegramInterpreter
   constructor(private readonly menuProvider: LocalConversationMenuProvider) {}
 
   async interpret(
-    _context: AIConversationContext,
+    context: AIConversationContext,
     text: string,
   ): Promise<AIConversationInterpretation> {
-    const normalized = normalizeCommand(text);
-    if (normalized === "/add" || normalized.startsWith("/add ")) {
+    const normalized = normalizeText(text);
+    const command = normalized.toLowerCase();
+    if (command === "/add" || command.startsWith("/add ")) {
       return this.interpretAdd(normalized);
     }
+    if (command === "/remove" || command.startsWith("/remove ")) {
+      return this.interpretRemove(context, normalized);
+    }
+    if (command === "/name" || command.startsWith("/name ")) {
+      return interpretName(normalized);
+    }
+    if (command === "/phone" || command.startsWith("/phone ")) {
+      return interpretPhone(normalized);
+    }
+    if (command === "/address" || command.startsWith("/address ")) {
+      return interpretAddress(context, normalized);
+    }
+    if (
+      command.startsWith("/pickup ") ||
+      command.startsWith("/delivery ") ||
+      command.startsWith("/review ")
+    ) {
+      return missingInformation();
+    }
 
-    switch (normalized) {
+    switch (command) {
       case "/start":
       case "/cart":
       case "cart":
@@ -36,14 +56,20 @@ export class DeterministicTelegramInterpreter
       case "меню":
       case "покажи меню":
         return { kind: "command", command: { type: "show_menu" } };
+      case "/pickup":
+        return { kind: "command", command: { type: "choose_pickup" } };
+      case "/delivery":
+        return { kind: "command", command: { type: "choose_delivery" } };
+      case "/review":
+        return { kind: "command", command: { type: "review_order" } };
       default:
         return { kind: "needs_clarification", reason: "unsupported" };
     }
   }
 
   private interpretAdd(command: string): AIConversationInterpretation {
-    const match = /^\/add ([0-9]+)(?: ([0-9]+))?$/u.exec(command);
-    if (match === null) return missingAddInformation();
+    const match = /^\/add ([0-9]+)(?: ([0-9]+))?$/iu.exec(command);
+    if (match === null) return missingInformation();
 
     const menuNumber = parsePositiveSafeInteger(match[1]);
     const quantity =
@@ -54,7 +80,7 @@ export class DeterministicTelegramInterpreter
       menuNumber === undefined ||
       (match[2] !== undefined && quantity === undefined)
     ) {
-      return missingAddInformation();
+      return missingInformation();
     }
 
     let numberedMenu: ReturnType<typeof numberAvailableTelegramMenuItems>;
@@ -63,10 +89,10 @@ export class DeterministicTelegramInterpreter
         this.menuProvider.getMenuSnapshot(),
       );
     } catch {
-      return missingAddInformation();
+      return missingInformation();
     }
     const selected = numberedMenu[menuNumber - 1];
-    if (selected === undefined) return missingAddInformation();
+    if (selected === undefined) return missingInformation();
 
     return {
       kind: "command",
@@ -77,10 +103,48 @@ export class DeterministicTelegramInterpreter
       },
     };
   }
+
+  private interpretRemove(
+    context: AIConversationContext,
+    command: string,
+  ): AIConversationInterpretation {
+    const match = /^\/remove ([0-9]+)(?: ([0-9]+))?$/iu.exec(command);
+    if (match === null) return missingInformation();
+
+    const cartNumber = parsePositiveSafeInteger(match[1]);
+    const removeQuantity =
+      match[2] === undefined
+        ? undefined
+        : parsePositiveSafeInteger(match[2]);
+    if (
+      cartNumber === undefined ||
+      (match[2] !== undefined && removeQuantity === undefined)
+    ) {
+      return missingInformation();
+    }
+
+    const selected = context.conversation.cart[cartNumber - 1];
+    if (selected === undefined) return missingInformation();
+    if (removeQuantity === undefined || removeQuantity === selected.quantity) {
+      return {
+        kind: "command",
+        command: { type: "remove_item", menuItemId: selected.menuItemId },
+      };
+    }
+    if (removeQuantity > selected.quantity) return missingInformation();
+    return {
+      kind: "command",
+      command: {
+        type: "set_quantity",
+        menuItemId: selected.menuItemId,
+        quantity: selected.quantity - removeQuantity,
+      },
+    };
+  }
 }
 
-function normalizeCommand(text: string): string {
-  return text.normalize("NFC").trim().replace(/\s+/gu, " ").toLowerCase();
+function normalizeText(text: string): string {
+  return text.normalize("NFC").trim().replace(/\s+/gu, " ");
 }
 
 function parsePositiveSafeInteger(
@@ -91,6 +155,99 @@ function parsePositiveSafeInteger(
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : undefined;
 }
 
-function missingAddInformation(): AIConversationInterpretation {
+function interpretName(command: string): AIConversationInterpretation {
+  const firstName = command.slice("/name".length).trim();
+  if (!isValidName(firstName)) return missingInformation();
+  return {
+    kind: "command",
+    command: { type: "set_customer", firstName },
+  };
+}
+
+function interpretPhone(command: string): AIConversationInterpretation {
+  const phone = normalizePhone(command.slice("/phone".length).trim());
+  if (phone === undefined) return missingInformation();
+  return {
+    kind: "command",
+    command: { type: "set_customer", phone },
+  };
+}
+
+function interpretAddress(
+  context: AIConversationContext,
+  command: string,
+): AIConversationInterpretation {
+  if (context.conversation.fulfilment !== "delivery") {
+    return missingInformation();
+  }
+  const parts = command
+    .slice("/address".length)
+    .split("|")
+    .map((part) => part.trim());
+  if (
+    parts.length !== 3 ||
+    !isValidAddressLine(parts[0]) ||
+    !isValidCity(parts[1]) ||
+    !isValidPostalCode(parts[2])
+  ) {
+    return missingInformation();
+  }
+  return {
+    kind: "command",
+    command: {
+      type: "set_delivery_address",
+      address: {
+        line1: parts[0],
+        city: parts[1],
+        postalCode: parts[2],
+      },
+    },
+  };
+}
+
+function isValidName(value: string): boolean {
+  return (
+    value.length <= 100 &&
+    /^[\p{L}\p{M}][\p{L}\p{M} .'-]*$/u.test(value)
+  );
+}
+
+function normalizePhone(value: string): string | undefined {
+  if (!/^\+?[0-9 ()-]+$/u.test(value)) return undefined;
+  const normalized = value.replace(/[ ()-]/gu, "");
+  const digits = normalized.startsWith("+")
+    ? normalized.slice(1)
+    : normalized;
+  return /^\d{7,15}$/u.test(digits) ? normalized : undefined;
+}
+
+function isBoundedText(
+  value: string | undefined,
+  maximumLength: number,
+): value is string {
+  return (
+    value !== undefined &&
+    value.length > 0 &&
+    value.length <= maximumLength &&
+    !/[\u0000-\u001f\u007f]/u.test(value)
+  );
+}
+
+function isValidAddressLine(value: string | undefined): value is string {
+  return isBoundedText(value, 200) && /[\p{L}\p{N}]/u.test(value);
+}
+
+function isValidCity(value: string | undefined): value is string {
+  return isBoundedText(value, 100) && /\p{L}/u.test(value);
+}
+
+function isValidPostalCode(value: string | undefined): value is string {
+  return (
+    isBoundedText(value, 20) &&
+    /^[\p{L}\p{N}][\p{L}\p{N} -]*$/u.test(value)
+  );
+}
+
+function missingInformation(): AIConversationInterpretation {
   return { kind: "needs_clarification", reason: "missing_information" };
 }

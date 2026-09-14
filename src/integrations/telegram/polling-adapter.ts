@@ -3,6 +3,7 @@ import type {
   AIConversationLayerResponse,
 } from "../../application/ai-conversation-layer.js";
 import type {
+  ConversationAgentCommand,
   ConversationAgentResponse,
   ConversationMissingField,
   ConversationOrderView,
@@ -219,9 +220,9 @@ function renderTelegramResponse(response: AIConversationLayerResponse): string {
     case "needs_clarification": {
       switch (response.reason) {
         case "unsupported":
-          return "Доступные команды: /menu, /add <номер> [количество], /cart.";
+          return "Доступные команды: /menu, /add <номер> [количество], /cart, /remove <номер> [количество], /pickup, /delivery, /name <имя>, /phone <телефон>, /address <улица> | <город> | <индекс>, /review.";
         case "missing_information":
-          return "Не удалось добавить позицию. Используйте /menu, затем /add <номер> [количество].";
+          return "Проверьте формат и порядок команд: /add <номер> [количество], /remove <номер из корзины> [количество], /name <имя>, /phone <телефон>, /delivery перед /address <улица> | <город> | <индекс>.";
         case "ambiguous":
           return "Уточните, пожалуйста, что вы хотите заказать.";
       }
@@ -229,8 +230,30 @@ function renderTelegramResponse(response: AIConversationLayerResponse): string {
     case "error":
       return "Не удалось обработать сообщение. Попробуйте сформулировать запрос иначе.";
     case "command_applied":
-      return renderConversationResponse(response.response);
+      return renderAppliedResponse(response.command, response.response);
   }
+}
+
+function renderAppliedResponse(
+  command: ConversationAgentCommand,
+  response: ConversationAgentResponse,
+): string {
+  if (response.kind === "cart") {
+    if (command.type === "set_customer") {
+      const confirmation = command.firstName !== undefined
+        ? "Имя сохранено."
+        : "Телефон сохранён.";
+      return limitTelegramText(
+        `${confirmation}\n${renderReview("Заказ", response.order)}`,
+      );
+    }
+    if (command.type === "set_delivery_address") {
+      return limitTelegramText(
+        `Адрес сохранён.\n${renderReview("Заказ", response.order)}`,
+      );
+    }
+  }
+  return renderConversationResponse(response);
 }
 
 function renderConversationResponse(response: ConversationAgentResponse): string {
@@ -250,17 +273,13 @@ function renderConversationResponse(response: ConversationAgentResponse): string
       );
     }
     case "cart":
-      return renderOrder("Корзина", response.order);
+      return limitTelegramText(
+        `${renderOrder("Корзина", response.order)}\nУбрать: /remove <номер> [количество]`,
+      );
     case "needs_input":
-      return limitTelegramText(
-        `${renderOrder("Заказ", response.order)}\nНужно указать: ${response.order.missingFields.map(missingFieldLabel).join(", ")}.`,
-      );
+      return renderReview("Заказ", response.order);
     case "order_review":
-      return limitTelegramText(
-        response.readyForCheckout
-          ? `${renderOrder("Проверьте заказ", response.order)}\nЗаказ готов к созданию ссылки на оплату.`
-          : `${renderOrder("Проверьте заказ", response.order)}\nНужно указать: ${response.order.missingFields.map(missingFieldLabel).join(", ")}.`,
-      );
+      return renderReview("Проверьте заказ", response.order);
     case "checkout_ready":
       return limitTelegramText(
         `${renderOrder("Заказ", response.order)}\nСсылка на оплату: ${response.checkoutLink}`,
@@ -274,14 +293,37 @@ function renderOrder(title: string, order: ConversationOrderView): string {
   const lines = order.items.length === 0
     ? ["Корзина пуста."]
     : order.items.map(
-        (item) =>
-          `• ${item.name} × ${item.quantity} — ${formatEuro(item.lineTotalCents)}`,
+        (item, index) =>
+          `${index + 1}. ${item.name} × ${item.quantity} — ${formatEuro(item.lineTotalCents)}`,
       );
   return limitTelegramText(
-    [title + ":", ...lines, `Итого: ${formatEuro(order.totals.totalCents)}`].join(
-      "\n",
-    ),
+    [
+      title + ":",
+      ...lines,
+      `Получение: ${fulfilmentLabel(order.fulfilment)}`,
+      `Итого: ${formatEuro(order.totals.totalCents)}`,
+    ].join("\n"),
   );
+}
+
+function renderReview(title: string, order: ConversationOrderView): string {
+  const completion = order.missingFields.length === 0
+    ? "Обязательные данные заполнены."
+    : `Нужно указать: ${order.missingFields.map(missingFieldLabel).join(", ")}.`;
+  return limitTelegramText(`${renderOrder(title, order)}\n${completion}`);
+}
+
+function fulfilmentLabel(
+  fulfilment: ConversationOrderView["fulfilment"],
+): string {
+  switch (fulfilment) {
+    case "pickup":
+      return "самовывоз";
+    case "delivery":
+      return "доставка";
+    case null:
+      return "не выбрано";
+  }
 }
 
 function missingFieldLabel(field: ConversationMissingField): string {

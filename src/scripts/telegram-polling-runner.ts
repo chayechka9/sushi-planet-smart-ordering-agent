@@ -96,9 +96,8 @@ export async function runTelegramPolling(
       stateStore,
       menuProvider,
       deliveryFeePolicy: {
-        getDeliveryFeeCents: () => {
-          throw new Error("Delivery is unavailable in Telegram test mode");
-        },
+        getDeliveryFeeCents: () =>
+          loadControlledTelegramDeliveryFeeCents(environment),
       },
       checkoutFlow: {
         prepareCheckoutLink: async () => {
@@ -149,6 +148,20 @@ export async function runTelegramPolling(
   } finally {
     stateStore?.close();
   }
+}
+
+function loadControlledTelegramDeliveryFeeCents(
+  environment: NodeJS.ProcessEnv,
+): number {
+  const value = environment.TELEGRAM_DELIVERY_FEE_CENTS?.trim() ?? "";
+  if (!/^\d+$/u.test(value)) {
+    throw new Error("Telegram delivery fee is unavailable");
+  }
+  const fee = Number(value);
+  if (!Number.isSafeInteger(fee) || fee < 0) {
+    throw new Error("Telegram delivery fee is unavailable");
+  }
+  return fee;
 }
 
 function hasExactConfirmation(argv: readonly string[]): boolean {
