@@ -76,6 +76,7 @@ export type AIConversationLayerErrorCode =
   | "interpreter_unavailable"
   | "invalid_identity"
   | "message_conflict"
+  | "delivery_unavailable"
   | "conversation_unavailable"
   | "conversation_rejected";
 
@@ -313,6 +314,8 @@ function mapConversationError(error: unknown): AIConversationLayerErrorCode {
         return "invalid_identity";
       case "message_conflict":
         return "message_conflict";
+      case "delivery_unavailable":
+        return "delivery_unavailable";
       default:
         return "conversation_rejected";
     }

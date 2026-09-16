@@ -1,4 +1,10 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -130,11 +136,23 @@ function writeSyntheticMenu(databasePath: string): string {
   return menuSnapshotPath;
 }
 
+function writeSyntheticDeliveryTariffs(
+  databasePath: string,
+  tariffs: readonly unknown[],
+): string {
+  const tariffPath = join(databasePath, "..", "delivery-tariffs.json");
+  writeFileSync(
+    tariffPath,
+    JSON.stringify({ schemaVersion: 1, tariffs }),
+    "utf8",
+  );
+  return tariffPath;
+}
+
 function enabledEnvironment(): NodeJS.ProcessEnv {
   return {
     TELEGRAM_RUNTIME_ENABLED: "true",
     TELEGRAM_BOT_TOKEN: syntheticToken,
-    TELEGRAM_DELIVERY_FEE_CENTS: "350",
   };
 }
 
@@ -660,6 +678,13 @@ describe("controlled Telegram polling runner", () => {
   it("persists delivery fields and review state across a SQLite restart", async () => {
     const databasePath = temporaryDatabasePath();
     const menuSnapshotPath = writeSyntheticMenu(databasePath);
+    const deliveryTariffPath = writeSyntheticDeliveryTariffs(databasePath, [
+      {
+        district: "Fixture City",
+        eircode: "TEST CODE",
+        feeCents: 350,
+      },
+    ]);
     const firstTransport = new FakeTelegramTransport([
       privateCommandUpdate({ updateId: 770, messageId: 140, text: "/add 1" }),
       privateCommandUpdate({ updateId: 771, messageId: 141, text: "/delivery" }),
@@ -686,6 +711,7 @@ describe("controlled Telegram polling runner", () => {
       signal: firstController.signal,
       databasePath,
       menuSnapshotPath,
+      deliveryTariffPath,
       transport: firstTransport,
       onEvent: (event) => {
         if (event.status === "batch") firstController.abort();
@@ -702,6 +728,7 @@ describe("controlled Telegram polling runner", () => {
       signal: restartedController.signal,
       databasePath,
       menuSnapshotPath,
+      deliveryTariffPath,
       transport: restartedTransport,
       onEvent: (event) => {
         if (event.status === "batch") restartedController.abort();
@@ -718,11 +745,10 @@ describe("controlled Telegram polling runner", () => {
     );
   });
 
-  it("does not save a delivery address without an explicit local fee", async () => {
+  it("rejects an unavailable delivery zone without changing address or price", async () => {
     const databasePath = temporaryDatabasePath();
     const menuSnapshotPath = writeSyntheticMenu(databasePath);
-    const environment = enabledEnvironment();
-    delete environment.TELEGRAM_DELIVERY_FEE_CENTS;
+    const deliveryTariffPath = writeSyntheticDeliveryTariffs(databasePath, []);
     const transport = new FakeTelegramTransport([
       privateCommandUpdate({ updateId: 776, messageId: 146, text: "/delivery" }),
       privateCommandUpdate({
@@ -736,10 +762,11 @@ describe("controlled Telegram polling runner", () => {
 
     await runTelegramPolling({
       argv: [TELEGRAM_POLLING_CONFIRMATION],
-      environment,
+      environment: enabledEnvironment(),
       signal: controller.signal,
       databasePath,
       menuSnapshotPath,
+      deliveryTariffPath,
       transport,
       onEvent: (event) => {
         if (event.status === "batch") controller.abort();
@@ -748,7 +775,7 @@ describe("controlled Telegram polling runner", () => {
 
     expect(transport.sendMessage).toHaveBeenNthCalledWith(2, {
       chatId: 502,
-      text: "Не удалось обработать сообщение. Попробуйте сформулировать запрос иначе.",
+      text: "Доставка в эту зону пока недоступна.",
       signal: controller.signal,
     });
     expect(transport.sendMessage).toHaveBeenNthCalledWith(3, {
@@ -756,6 +783,18 @@ describe("controlled Telegram polling runner", () => {
       text: "Проверьте заказ:\nКорзина пуста.\nПолучение: доставка\nИтого: €0.00\nНужно указать: блюда, имя, телефон, адрес.",
       signal: controller.signal,
     });
+    const store = new SqliteConversationStateStore(databasePath, {
+      readOnly: true,
+    });
+    try {
+      expect(store.findByConversationId("telegram:chat:502")).toMatchObject({
+        fulfilmentChoice: "delivery",
+        order: { fulfilment: null },
+        customer: {},
+      });
+    } finally {
+      store.close();
+    }
   });
 
   it("rejects malformed order commands without mutating the saved order", async () => {

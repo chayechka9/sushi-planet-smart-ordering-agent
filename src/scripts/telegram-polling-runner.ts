@@ -7,6 +7,10 @@ import {
   loadTelegramRuntimeConfig,
   TelegramRuntimeConfigurationError,
 } from "../config/telegram.js";
+import {
+  defaultLocalDeliveryTariffPath,
+  LocalDeliveryTariffResolver,
+} from "../delivery/local-delivery-tariff-resolver.js";
 import { createOrder } from "../domain/order.js";
 import {
   TelegramApiTransportError,
@@ -55,6 +59,7 @@ export interface TelegramPollingRunnerOptions {
   signal: AbortSignal;
   databasePath?: string;
   menuSnapshotPath?: string;
+  deliveryTariffPath?: string;
   transport?: TelegramApiTransport;
   onEvent?: (event: TelegramPollingRunnerEvent) => void | Promise<void>;
 }
@@ -95,10 +100,9 @@ export async function runTelegramPolling(
     const conversationAgent = new LocalConversationAgentService({
       stateStore,
       menuProvider,
-      deliveryFeePolicy: {
-        getDeliveryFeeCents: () =>
-          loadControlledTelegramDeliveryFeeCents(environment),
-      },
+      deliveryFeePolicy: new LocalDeliveryTariffResolver(
+        options.deliveryTariffPath ?? defaultLocalDeliveryTariffPath(),
+      ),
       checkoutFlow: {
         prepareCheckoutLink: async () => {
           throw new Error("Checkout is unavailable in Telegram test mode");
@@ -148,20 +152,6 @@ export async function runTelegramPolling(
   } finally {
     stateStore?.close();
   }
-}
-
-function loadControlledTelegramDeliveryFeeCents(
-  environment: NodeJS.ProcessEnv,
-): number {
-  const value = environment.TELEGRAM_DELIVERY_FEE_CENTS?.trim() ?? "";
-  if (!/^\d+$/u.test(value)) {
-    throw new Error("Telegram delivery fee is unavailable");
-  }
-  const fee = Number(value);
-  if (!Number.isSafeInteger(fee) || fee < 0) {
-    throw new Error("Telegram delivery fee is unavailable");
-  }
-  return fee;
 }
 
 function hasExactConfirmation(argv: readonly string[]): boolean {

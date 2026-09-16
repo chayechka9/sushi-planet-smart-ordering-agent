@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Telegram delivery tariff configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "tariffs"],
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "tariffs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["feeCents"],
+        "anyOf": [
+          { "required": ["district"] },
+          { "required": ["eircode"] }
+        ],
+        "properties": {
+          "district": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "eircode": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 16,
+            "pattern": "^[A-Za-z0-9\\s]+$"
+          },
+          "feeCents": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      }
+    }
+  }
+}

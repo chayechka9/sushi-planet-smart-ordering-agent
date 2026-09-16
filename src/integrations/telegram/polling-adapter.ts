@@ -228,6 +228,9 @@ function renderTelegramResponse(response: AIConversationLayerResponse): string {
       }
     }
     case "error":
+      if (response.code === "delivery_unavailable") {
+        return "Доставка в эту зону пока недоступна.";
+      }
       return "Не удалось обработать сообщение. Попробуйте сформулировать запрос иначе.";
     case "command_applied":
       return renderAppliedResponse(response.command, response.response);

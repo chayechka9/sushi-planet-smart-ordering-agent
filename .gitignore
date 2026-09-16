@@ -15,3 +15,4 @@ coverage/
 .sumup-e2e/
 /.telegram-menu-snapshot.json
 /.telegram-menu-snapshot.json.tmp-*
+/.telegram-delivery-tariffs.json
