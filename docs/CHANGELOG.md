@@ -5,6 +5,45 @@
 
 ## 16 сентября 2026
 
+### Единый безопасный локальный сценарий заказа
+
+- Добавлен transport-neutral `LocalOrderFlowService`: он принимает уже
+  нормализованное действие, передаёт его существующему
+  `LocalConversationAgentService` и возвращает актуальный локальный summary
+  заказа вместе с типизированным `nextStep`. Корзина, customer data,
+  fulfilment и расчёт сумм не дублируются и остаются в существующем order core.
+- Для полностью заполненного pickup-заказа `nextStep` содержит только локальный
+  `payment_boundary_ready` object: order ID, способ получения, валюту `EUR` и
+  сумму в евроцентах. Checkout или payment adapter этим сценарием не
+  вызывается.
+- Команды `prepare_checkout` и `customer_reports_payment` отклоняются до
+  conversation core как `external_step_not_allowed`. Поэтому повтор или ошибка
+  не создают checkout/payment attempt и не переводят заказ в следующий
+  lifecycle status.
+- Добавлена read-only projection текущего заказа через `inspect()`, чтобы
+  connector возвращал актуальный summary и после idempotent повтора ранее
+  обработанного action ID, не применяя действие к корзине второй раз.
+- Delivery использует существующий fail-closed tariff resolver. При намеренно
+  пустой таблице адрес отклоняется как `delivery_unavailable`: адрес и тариф не
+  сохраняются, fulfilment fee остаётся `0`, total не считается финальным, а
+  следующий локальный шаг продолжает требовать адрес. Delivery config и
+  тарифы в этой задаче не менялись.
+- Synthetic end-to-end tests покрывают корзину → customer data → pickup →
+  корректный EUR-cent summary и локальный payment-ready object, повтор add без
+  удвоения quantity/order, delivery-отказ без изменения состояния, повтор
+  отказа и блокировку checkout/payment commands. Test fixtures не являются
+  данными Sushi Planet.
+- `src/server.ts` и production wiring не менялись. HTTP-server, Telegram
+  polling, OpenAI, Poster, SumUp, реальные заказы, checkout и платежи не
+  запускались; внешние запросы не выполнялись.
+- Проверки: точечные тесты — 24 теста в 3 файлах прошли; `npm test` — 355
+  тестов в 37 файлах прошли; `npm run typecheck`; `npm run build`;
+  `git diff --check` — успешно.
+- Result: complete — существующие локальные order-компоненты соединены в один
+  безопасный сценарий до явной границы оплаты; подключение к `src/server.ts` и
+  вызов реального payment/backend flow остаются вне scope.
+- Commit: текущий коммит, содержащий эту запись.
+
 ### Локальный deterministic resolver тарифов доставки
 
 - Controlled Telegram delivery flow больше не читает одну общую

@@ -312,6 +312,12 @@ export class LocalConversationAgentService {
     return result.response;
   }
 
+  inspect(conversationId: string): ConversationOrderView | undefined {
+    const normalizedConversationId = requireIdentity(conversationId);
+    const state = this.loadState(normalizedConversationId);
+    return state === undefined ? undefined : toOrderView(state);
+  }
+
   private async applyCommand(
     state: LocalConversationState,
     command: ConversationAgentCommand,
