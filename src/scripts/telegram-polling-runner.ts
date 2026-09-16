@@ -1,7 +1,7 @@
 import { resolve } from "node:path";
 
-import { AIConversationLayerService } from "../application/ai-conversation-layer.js";
 import { LocalConversationAgentService } from "../application/local-conversation-agent.js";
+import { LocalOrderFlowService } from "../application/local-order-flow.js";
 import { createTelegramPollingRuntime } from "../composition/telegram-polling-runtime.js";
 import {
   loadTelegramRuntimeConfig,
@@ -18,6 +18,7 @@ import {
   type TelegramTransportFailureCode,
 } from "../integrations/telegram/api-transport.js";
 import { DeterministicTelegramInterpreter } from "../integrations/telegram/deterministic-interpreter.js";
+import { TelegramLocalOrderUpdateHandler } from "../integrations/telegram/local-order-update-handler.js";
 import type { TelegramPollResult } from "../integrations/telegram/polling-adapter.js";
 import {
   defaultLocalMenuSnapshotPath,
@@ -116,13 +117,13 @@ export async function runTelegramPolling(
       },
       createOrder,
     });
-    const conversation = new AIConversationLayerService({
+    const updateHandler = new TelegramLocalOrderUpdateHandler({
       interpreter: new DeterministicTelegramInterpreter(menuProvider),
-      conversationAgent,
+      orderFlow: new LocalOrderFlowService({ conversationAgent }),
       stateStore,
     });
     const runtime = createTelegramPollingRuntime(
-      { conversation, stateStore },
+      { updateHandler },
       {
         environment,
         ...(options.transport === undefined

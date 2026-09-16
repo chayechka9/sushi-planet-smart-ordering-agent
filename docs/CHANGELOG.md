@@ -5,6 +5,46 @@
 
 ## 16 сентября 2026
 
+### Controlled polling runtime → local order update handler
+
+- Существующий `TelegramLongPollingAdapter` теперь передаёт каждый полученный
+  update в уже реализованный `TelegramLocalOrderUpdateHandler`. Handler остаётся
+  единственной точкой Telegram parsing, identity/duplicate guard,
+  deterministic interpretation и вызова `LocalOrderFlowService`; второй
+  polling loop и отдельная business logic не создавались.
+- После результата handler adapter отправляет ровно один непустой безопасный
+  reply через существующий `TelegramApiTransport`. Update с неподдерживаемым
+  типом и duplicate не отправляют reply; пустой reply и исключение handler
+  становятся `processing_failed`, а ошибка transport — `send_failed`.
+  Такие ошибки локализуются в outcome конкретного update и не прерывают
+  обработку следующих update в уже полученном batch.
+- Проверяется соответствие `updateId` результата исходному update. Adapter не
+  повторяет `sendMessage`; если отправка завершилась ошибкой, уже сохранённый
+  handler state делает повтор того же Telegram message duplicate, поэтому
+  business action и ответ повторно не создаются.
+- Controlled runner теперь локально собирает существующие menu provider,
+  conversation agent, `LocalOrderFlowService`, deterministic interpreter и
+  single-update handler, затем передаёт handler в polling runtime. Для готового
+  pickup ответ отражает `payment_boundary_ready`, но checkout не создаётся;
+  delivery с пустой реальной таблицей тарифов по-прежнему fail-closed.
+- Все runtime gates сохранены: polling требует отдельного запуска script с
+  точным confirmation argument, `TELEGRAM_RUNTIME_ENABLED=true` и локальным
+  token. Импорт модулей, создание runtime, тесты, build/typecheck и обычный
+  `src/server.ts` polling не запускают; `server.ts` остаётся health-only.
+- Fake handler/transport tests покрывают успешный update → один reply,
+  duplicate без повторной отправки, unsupported update, пустой reply, ошибку
+  handler, продолжение batch, ошибку отправки без retry и несоответствующий
+  `updateId`. Runner tests подтверждают полный локальный pickup/delivery flow и
+  SQLite idempotency; global `fetch` в тестах запрещён.
+- Telegram API, polling, `.env`, реальные token/messages/orders/payments,
+  OpenAI, Poster и SumUp не вызывались. Delivery tariff config не менялся.
+- Проверки: точечные тесты — 43 теста в 5 файлах прошли; `npm test` — 360
+  тестов в 38 файлах прошли; `npm run typecheck`; `npm run build`;
+  `git diff --check` — успешно.
+- Result: complete — controlled polling runtime локально подключён к готовому
+  single-update order handler, но реальный Telegram-бот намеренно не запущен.
+- Commit: текущий коммит, содержащий эту запись.
+
 ### Локальный controlled Telegram update → order flow
 
 - Добавлен `TelegramLocalOrderUpdateHandler` — локальная точка композиции для

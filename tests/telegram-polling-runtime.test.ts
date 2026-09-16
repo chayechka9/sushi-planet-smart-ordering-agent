@@ -23,8 +23,7 @@ afterEach(() => {
 
 function dependencies() {
   return {
-    conversation: { handle: vi.fn() },
-    stateStore: { findByConversationId: vi.fn() },
+    updateHandler: { handle: vi.fn() },
   };
 }
 

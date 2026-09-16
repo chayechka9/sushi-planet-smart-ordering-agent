@@ -1,28 +1,24 @@
-import type {
-  AIConversationLayerInput,
-  AIConversationLayerResponse,
-} from "../../application/ai-conversation-layer.js";
+import type { AIConversationLayerResponse } from "../../application/ai-conversation-layer.js";
 import type {
   ConversationAgentCommand,
   ConversationAgentResponse,
   ConversationMissingField,
   ConversationOrderView,
-  LocalConversationStateStore,
 } from "../../application/local-conversation-agent.js";
 import type {
   TelegramApiTransport,
   TelegramUpdateEnvelope,
 } from "./api-transport.js";
+import type { TelegramLocalOrderUpdateResult } from "./local-order-update-handler.js";
 import { numberAvailableTelegramMenuItems } from "./menu-numbering.js";
 
-export interface TelegramConversationHandler {
-  handle(input: AIConversationLayerInput): Promise<AIConversationLayerResponse>;
+export interface TelegramUpdateHandler {
+  handle(update: TelegramUpdateEnvelope): Promise<TelegramLocalOrderUpdateResult>;
 }
 
 export interface TelegramPollingAdapterDependencies {
   transport: TelegramApiTransport;
-  conversation: TelegramConversationHandler;
-  stateStore: Pick<LocalConversationStateStore, "findByConversationId">;
+  updateHandler: TelegramUpdateHandler;
 }
 
 export interface TelegramPollingAdapterOptions {
@@ -123,52 +119,25 @@ export class TelegramLongPollingAdapter {
     update: TelegramUpdateEnvelope,
     signal?: AbortSignal,
   ): Promise<TelegramUpdateOutcome> {
-    const message = parseTelegramPrivateTextMessage(update.payload);
-    if (message === undefined) {
-      return { updateId: update.updateId, kind: "ignored", reason: "unsupported" };
-    }
-
-    const identity = telegramIdentity(message);
+    let result: TelegramLocalOrderUpdateResult;
     try {
-      const state = this.dependencies.stateStore.findByConversationId(
-        identity.conversationId,
-      );
-      if (
-        state !== undefined &&
-        (state.identity.channel !== "telegram" ||
-          state.identity.userId !== identity.userId)
-      ) {
-        return { updateId: update.updateId, kind: "processing_failed" };
-      }
-      if (
-        state?.processedMessages.some(
-          (processed) => processed.messageId === identity.messageId,
-        )
-      ) {
-        return { updateId: update.updateId, kind: "ignored", reason: "duplicate" };
-      }
+      result = await this.dependencies.updateHandler.handle(update);
     } catch {
       return { updateId: update.updateId, kind: "processing_failed" };
     }
-
-    let response: AIConversationLayerResponse;
-    try {
-      response = await this.dependencies.conversation.handle({
-        channel: "telegram",
-        userId: identity.userId,
-        conversationId: identity.conversationId,
-        messageId: identity.messageId,
-        text: message.text,
-      });
-    } catch {
+    if (result.updateId !== update.updateId) {
+      return { updateId: update.updateId, kind: "processing_failed" };
+    }
+    if (result.kind === "ignored") return result;
+    if (result.kind === "processing_failed") return result;
+    if (result.text.trim().length === 0) {
       return { updateId: update.updateId, kind: "processing_failed" };
     }
 
-    const text = renderTelegramResponse(response);
     try {
       await this.dependencies.transport.sendMessage({
-        chatId: message.chatId,
-        text,
+        chatId: result.chatId,
+        text: result.text,
         ...(signal === undefined ? {} : { signal }),
       });
       return { updateId: update.updateId, kind: "replied" };

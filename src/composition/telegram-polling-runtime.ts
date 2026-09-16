@@ -1,4 +1,3 @@
-import type { LocalConversationStateStore } from "../application/local-conversation-agent.js";
 import { loadTelegramRuntimeConfig } from "../config/telegram.js";
 import {
   TelegramBotApiHttpTransport,
@@ -7,12 +6,11 @@ import {
 } from "../integrations/telegram/api-transport.js";
 import {
   TelegramLongPollingAdapter,
-  type TelegramConversationHandler,
+  type TelegramUpdateHandler,
 } from "../integrations/telegram/polling-adapter.js";
 
 export interface TelegramPollingRuntimeDependencies {
-  conversation: TelegramConversationHandler;
-  stateStore: Pick<LocalConversationStateStore, "findByConversationId">;
+  updateHandler: TelegramUpdateHandler;
 }
 
 export interface TelegramPollingRuntimeOptions
@@ -52,7 +50,7 @@ export function createTelegramPollingRuntime(
   return {
     enabled: true,
     adapter: new TelegramLongPollingAdapter(
-      { ...dependencies, transport },
+      { updateHandler: dependencies.updateHandler, transport },
       adapterOptions,
     ),
   };

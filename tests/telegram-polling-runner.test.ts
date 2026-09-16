@@ -653,7 +653,7 @@ describe("controlled Telegram polling runner", () => {
 
     expect(transport.sendMessage).toHaveBeenNthCalledWith(5, {
       chatId: 502,
-      text: "Проверьте заказ:\n1. Synthetic Fixture Alpha × 1 — €1.23\nПолучение: самовывоз\nИтого: €1.23\nОбязательные данные заполнены.",
+      text: "Проверьте заказ:\n1. Synthetic Fixture Alpha × 1 — €1.23\nПолучение: самовывоз\nИтого: €1.23\nОбязательные данные заполнены.\nЗаказ готов к переходу к оплате. Checkout не создан.",
       signal: controller.signal,
     });
     const sentOutput = JSON.stringify(transport.sendMessage.mock.calls);
@@ -737,7 +737,7 @@ describe("controlled Telegram polling runner", () => {
 
     expect(restartedTransport.sendMessage).toHaveBeenCalledWith({
       chatId: 502,
-      text: "Проверьте заказ:\n1. Synthetic Fixture Alpha × 1 — €1.23\nПолучение: доставка\nИтого: €4.73\nОбязательные данные заполнены.",
+      text: "Проверьте заказ:\n1. Synthetic Fixture Alpha × 1 — €1.23\nПолучение: доставка\nИтого: €4.73\nОбязательные данные заполнены.\nЗаказ готов к переходу к оплате. Checkout не создан.",
       signal: restartedController.signal,
     });
     expect(JSON.stringify(firstTransport.sendMessage.mock.calls)).not.toContain(
