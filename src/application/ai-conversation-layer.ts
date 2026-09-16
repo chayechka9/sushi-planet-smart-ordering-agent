@@ -157,10 +157,7 @@ export class AIConversationLayerService {
       };
     }
 
-    const context =
-      state === undefined
-        ? emptyContext(normalized)
-        : contextFromState(normalized, state);
+    const context = createAIConversationContext(normalized, state);
 
     let interpreted: unknown;
     try {
@@ -235,48 +232,30 @@ function normalizeInput(
   return { channel, userId, conversationId, messageId, text };
 }
 
-function emptyContext(
-  input: NormalizedAIConversationLayerInput,
+export function createAIConversationContext(
+  input: Pick<
+    NormalizedAIConversationLayerInput,
+    "channel" | "userId" | "conversationId"
+  >,
+  state?: LocalConversationState,
 ): AIConversationContext {
   return {
     conversationId: input.conversationId,
     identity: { channel: input.channel, userId: input.userId },
     conversation: {
-      status: "new",
-      cart: [],
-      fulfilment: null,
-      customerFields: {
-        firstName: false,
-        lastName: false,
-        phone: false,
-        deliveryAddress: false,
-      },
-      checkoutCreated: false,
-    },
-  };
-}
-
-function contextFromState(
-  input: NormalizedAIConversationLayerInput,
-  state: LocalConversationState,
-): AIConversationContext {
-  return {
-    conversationId: input.conversationId,
-    identity: { channel: input.channel, userId: input.userId },
-    conversation: {
-      status: state.status,
-      cart: state.order.items.map((item) => ({
+      status: state?.status ?? "new",
+      cart: (state?.order.items ?? []).map((item) => ({
         menuItemId: item.menuItemId,
         quantity: item.quantity,
       })),
-      fulfilment: state.fulfilmentChoice,
+      fulfilment: state?.fulfilmentChoice ?? null,
       customerFields: {
-        firstName: state.customer.firstName !== undefined,
-        lastName: state.customer.lastName !== undefined,
-        phone: state.customer.phone !== undefined,
-        deliveryAddress: state.customer.deliveryAddress !== undefined,
+        firstName: state?.customer.firstName !== undefined,
+        lastName: state?.customer.lastName !== undefined,
+        phone: state?.customer.phone !== undefined,
+        deliveryAddress: state?.customer.deliveryAddress !== undefined,
       },
-      checkoutCreated: state.checkout !== undefined,
+      checkoutCreated: state?.checkout !== undefined,
     },
   };
 }

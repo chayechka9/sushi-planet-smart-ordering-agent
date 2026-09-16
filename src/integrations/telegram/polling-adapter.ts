@@ -44,7 +44,7 @@ export type TelegramPollObserver = (
   result: TelegramPollResult,
 ) => void | Promise<void>;
 
-interface TelegramPrivateTextMessage {
+export interface TelegramPrivateTextMessage {
   chatId: number;
   userId: number;
   messageId: number;
@@ -123,7 +123,7 @@ export class TelegramLongPollingAdapter {
     update: TelegramUpdateEnvelope,
     signal?: AbortSignal,
   ): Promise<TelegramUpdateOutcome> {
-    const message = parsePrivateTextMessage(update.payload);
+    const message = parseTelegramPrivateTextMessage(update.payload);
     if (message === undefined) {
       return { updateId: update.updateId, kind: "ignored", reason: "unsupported" };
     }
@@ -178,7 +178,7 @@ export class TelegramLongPollingAdapter {
   }
 }
 
-function telegramIdentity(message: TelegramPrivateTextMessage): {
+export function telegramIdentity(message: TelegramPrivateTextMessage): {
   conversationId: string;
   userId: string;
   messageId: string;
@@ -190,7 +190,7 @@ function telegramIdentity(message: TelegramPrivateTextMessage): {
   };
 }
 
-function parsePrivateTextMessage(
+export function parseTelegramPrivateTextMessage(
   payload: unknown,
 ): TelegramPrivateTextMessage | undefined {
   if (!isRecord(payload) || !isRecord(payload.message)) return undefined;
@@ -215,7 +215,9 @@ function parsePrivateTextMessage(
   return { chatId, userId, messageId, text: message.text };
 }
 
-function renderTelegramResponse(response: AIConversationLayerResponse): string {
+export function renderTelegramResponse(
+  response: AIConversationLayerResponse,
+): string {
   switch (response.kind) {
     case "needs_clarification": {
       switch (response.reason) {
@@ -348,7 +350,7 @@ function formatEuro(cents: number): string {
   return `€${(cents / 100).toFixed(2)}`;
 }
 
-function limitTelegramText(text: string): string {
+export function limitTelegramText(text: string): string {
   return text.length <= 4_096 ? text : `${text.slice(0, 4_095)}…`;
 }
 

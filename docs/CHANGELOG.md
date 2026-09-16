@@ -5,6 +5,50 @@
 
 ## 16 сентября 2026
 
+### Локальный controlled Telegram update → order flow
+
+- Добавлен `TelegramLocalOrderUpdateHandler` — локальная точка композиции для
+  одного уже полученного update. Она переиспользует существующие Telegram
+  parsing/identity/reply helpers, `DeterministicTelegramInterpreter` и
+  `LocalOrderFlowService`; отдельную корзину, customer/address state, расчёт
+  сумм или command model не создаёт.
+- Общая projection безопасного conversation context вынесена из
+  `AIConversationLayerService` в повторно используемую функцию. Поэтому
+  deterministic interpreter получает прежние cart quantities, fulfilment и
+  только presence flags customer data без цен, delivery fee или платёжных
+  данных; поведение существующего AI-layer не изменено.
+- Handler принимает только private text update, строит стабильные Telegram
+  conversation/user/message identities, проверяет существующую identity и
+  processed-message history до interpreter, затем передаёт разрешённую команду
+  в `LocalOrderFlowService` и формирует bounded plain-text reply существующим
+  renderer.
+- Повтор уже обработанного update возвращает `duplicate` до interpreter и не
+  меняет корзину, не создаёт второй order и не формирует второй reply. Checkout
+  и payment commands остаются заблокированы внутри `LocalOrderFlowService`.
+- Готовый pickup reply использует актуальный core summary и дополняется
+  безопасным сообщением о локальном `payment_boundary_ready`; internal
+  `nextStep` содержит order ID, `EUR` и сумму в евроцентах. Checkout link,
+  payment attempt и внешний вызов не создаются.
+- Delivery продолжает использовать намеренно пустой локальный tariff resolver.
+  Отказ `delivery_unavailable` отображается как
+  `Доставка в эту зону пока недоступна.` без финального итога; address и tariff
+  не сохраняются, fulfilment fee остаётся `0`, а `totalIsFinal` — `false`.
+- Synthetic tests покрывают одну `/menu` command и точный reply, цепочку
+  `/add → /name → /phone → /pickup`, `payment_boundary_ready`, duplicate update
+  без повторной мутации, delivery-отказ, повтор отказа и отсутствие checkout и
+  global network calls.
+- Polling runtime и `TelegramApiTransport` к новому handler не подключались.
+  `src/server.ts` остаётся health-only; Telegram polling/API, OpenAI, Poster,
+  SumUp, реальные заказы, checkout и платежи не запускались. Delivery tariffs
+  и локальная конфигурация не менялись.
+- Проверки: точечные тесты — 38 тестов в 4 файлах прошли; `npm test` — 359
+  тестов в 38 файлах прошли; `npm run typecheck`; `npm run build`;
+  `git diff --check` — успешно.
+- Result: complete — путь already-received Telegram update → deterministic
+  interpreter → local order flow → safe reply собран локально; wiring этого
+  handler в polling/runtime остаётся отдельным будущим этапом.
+- Commit: текущий коммит, содержащий эту запись.
+
 ### Единый безопасный локальный сценарий заказа
 
 - Добавлен transport-neutral `LocalOrderFlowService`: он принимает уже
