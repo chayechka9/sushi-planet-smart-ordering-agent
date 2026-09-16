@@ -5,6 +5,55 @@
 
 ## 16 сентября 2026
 
+### Опциональный provider-neutral AI fallback в Telegram handler
+
+- `TelegramLocalOrderUpdateHandler` получил явный optional injection
+  существующего `AIConversationInterpreter`. Fallback отсутствует по умолчанию:
+  текущий controlled polling runner его не передаёт, поэтому импорт, обычный
+  запуск handler и Telegram runtime сохраняют прежнее deterministic поведение
+  без AI-конфигурации или provider-вызова.
+- Каждый update сначала проходит существующий
+  `DeterministicTelegramInterpreter`. Уже распознанные slash-команды и
+  deterministic текстовые aliases имеют безусловный приоритет. Неизвестная или
+  неверно записанная slash-команда никогда не передаётся AI; optional fallback
+  вызывается только для обычного текста, который deterministic interpreter
+  классифицировал как `unsupported`.
+- AI получает только существующий bounded `AIConversationContext` и исходный
+  текст сообщения: внутреннюю Telegram identity, phase, item IDs/quantities,
+  fulfilment, boolean presence flags customer fields и checkout existence. В
+  context отсутствуют menu prices/availability, totals, delivery fee,
+  customer field values, payment/Poster data, credentials и tokens.
+- Любой AI result повторно проходит существующий
+  `validateAIConversationInterpretation` и общую command schema. Только после
+  этого allowlisted action передаётся `LocalOrderFlowService`; AI не получает
+  state-store/order-flow dependencies и не пишет SQLite напрямую. Core остаётся
+  единственным источником cart mutation, EUR-cent totals, delivery tariff и
+  next step.
+- Empty/malformed/unknown result и exception AI дают только безопасный общий
+  reply без state mutation. Extra price/total/delivery-fee fields отклоняются
+  validator; `prepare_checkout` и `customer_reports_payment` дополнительно
+  блокируются существующей границей `LocalOrderFlowService`, поэтому checkout,
+  payment status и Poster action не создаются.
+- Duplicate guard выполняется до обоих interpreters. Повтор AI-interpreted
+  Telegram update не вызывает AI второй раз, не меняет корзину и не создаёт
+  второй order/reply.
+- Synthetic tests с fake AI adapter покрывают plain text → validated action →
+  существующий flow, приоритет deterministic text command, запрет AI для slash
+  command, default-disabled fallback, empty/invalid/error AI results,
+  authoritative amount/delivery/payment attempts, отсутствие checkout и
+  idempotent duplicate. Global network `fetch` в tests запрещён.
+- OpenAI runtime/transport, реальные OpenAI и Telegram API, polling, `.env`,
+  keys, Poster, SumUp, checkout, реальные заказы и платежи не запускались и не
+  подключались. `src/server.ts` остаётся health-only; menu и delivery tariff
+  configuration не менялись.
+- Проверки: точечные тесты — 61 тест в 5 файлах прошёл; `npm test` — 372 теста
+  в 38 файлах прошли; `npm run typecheck`; `npm run build`;
+  `git diff --check` — успешно.
+- Result: complete — Telegram handler локально поддерживает безопасный
+  opt-in provider-neutral AI fallback; provider-specific runtime wiring и
+  любой реальный AI/channel запуск остаются отдельными будущими этапами.
+- Commit: текущий коммит, содержащий эту запись.
+
 ### Controlled polling runtime → local order update handler
 
 - Существующий `TelegramLongPollingAdapter` теперь передаёт каждый полученный

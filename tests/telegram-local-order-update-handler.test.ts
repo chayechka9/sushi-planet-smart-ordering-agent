@@ -4,6 +4,10 @@ import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import type {
+  AIConversationInterpretation,
+  AIConversationInterpreter,
+} from "../src/application/ai-conversation-layer.js";
 import { LocalConversationAgentService } from "../src/application/local-conversation-agent.js";
 import { LocalOrderFlowService } from "../src/application/local-order-flow.js";
 import { LocalDeliveryTariffResolver } from "../src/delivery/local-delivery-tariff-resolver.js";
@@ -42,7 +46,7 @@ afterEach(() => {
   }
 });
 
-function createHarness() {
+function createHarness(aiInterpreter?: AIConversationInterpreter) {
   const directory = mkdtempSync(join(tmpdir(), "telegram-local-order-flow-"));
   temporaryDirectories.push(directory);
   const tariffPath = join(directory, "delivery-tariffs.json");
@@ -83,6 +87,9 @@ function createHarness() {
   return {
     handler: new TelegramLocalOrderUpdateHandler({
       interpreter: new DeterministicTelegramInterpreter(menuProvider),
+      ...(aiInterpreter === undefined
+        ? {}
+        : { aiFallback: { interpreter: aiInterpreter } }),
       orderFlow,
       stateStore,
     }),
@@ -90,6 +97,12 @@ function createHarness() {
     stateStore,
     prepareCheckoutLink,
     createOrderForConversation,
+  };
+}
+
+function fixedAIResult(result: unknown): AIConversationInterpreter {
+  return {
+    interpret: vi.fn(async () => result as AIConversationInterpretation),
   };
 }
 
@@ -251,6 +264,237 @@ describe("controlled Telegram local order update handler", () => {
     expect(harness.stateStore.findByConversationId(conversationId)).toEqual(
       before,
     );
+    expect(harness.createOrderForConversation).toHaveBeenCalledOnce();
+    expect(harness.prepareCheckoutLink).not.toHaveBeenCalled();
+  });
+
+  it("uses an explicitly injected AI fallback for unsupported plain text", async () => {
+    let receivedContext: unknown;
+    let receivedText = "";
+    const aiInterpreter: AIConversationInterpreter = {
+      interpret: vi.fn(async (context, text) => {
+        receivedContext = context;
+        receivedText = text;
+        return {
+          kind: "command" as const,
+          command: {
+            type: "add_item" as const,
+            menuItemId: "synthetic-item",
+            quantity: 2,
+          },
+        };
+      }),
+    };
+    const harness = createHarness(aiInterpreter);
+
+    await expect(
+      harness.handler.handle(commandUpdate(10, "добавь две позиции")),
+    ).resolves.toMatchObject({
+      kind: "reply",
+      text: expect.stringContaining("Synthetic Item × 2 — €12.50"),
+      nextStep: {
+        kind: "collecting_order",
+        missingFields: ["fulfilment", "first_name", "phone"],
+      },
+    });
+
+    expect(aiInterpreter.interpret).toHaveBeenCalledOnce();
+    expect(receivedText).toBe("добавь две позиции");
+    expect(receivedContext).toMatchObject({
+      identity: {
+        channel: "telegram",
+        userId: "telegram:user:501",
+      },
+      conversation: {
+        status: "new",
+        cart: [],
+        fulfilment: null,
+        checkoutCreated: false,
+      },
+    });
+    const serializedContext = JSON.stringify(receivedContext);
+    for (const forbidden of [
+      "unitPriceCents",
+      "totalCents",
+      "deliveryFeeCents",
+      "paymentStatus",
+      "posterOrderId",
+      "firstName\":\"",
+      "phone\":\"",
+    ]) {
+      expect(serializedContext).not.toContain(forbidden);
+    }
+    expect(harness.conversationAgent.inspect(conversationId)).toMatchObject({
+      items: [{ quantity: 2, lineTotalCents: 1_250 }],
+      totals: {
+        subtotalCents: 1_250,
+        fulfilmentCents: 0,
+        totalCents: 1_250,
+        currency: "EUR",
+      },
+    });
+    expect(harness.prepareCheckoutLink).not.toHaveBeenCalled();
+  });
+
+  it("keeps deterministic commands ahead of the AI fallback", async () => {
+    const aiInterpreter = fixedAIResult({
+      kind: "command",
+      command: { type: "choose_delivery" },
+    });
+    const harness = createHarness(aiInterpreter);
+
+    await expect(
+      harness.handler.handle(commandUpdate(11, "покажи меню")),
+    ).resolves.toMatchObject({
+      kind: "reply",
+      text: expect.stringContaining("Меню:"),
+    });
+
+    expect(aiInterpreter.interpret).not.toHaveBeenCalled();
+    expect(harness.conversationAgent.inspect(conversationId)?.fulfilment).toBe(
+      null,
+    );
+  });
+
+  it("never sends slash commands to the AI fallback", async () => {
+    const aiInterpreter = fixedAIResult({
+      kind: "command",
+      command: { type: "show_menu" },
+    });
+    const harness = createHarness(aiInterpreter);
+
+    await expect(
+      harness.handler.handle(commandUpdate(12, "/unknown")),
+    ).resolves.toEqual({
+      updateId: 1_012,
+      kind: "reply",
+      chatId: 501,
+      text: "Доступные команды: /menu, /add <номер> [количество], /cart, /remove <номер> [количество], /pickup, /delivery, /name <имя>, /phone <телефон>, /address <улица> | <город> | <индекс>, /review.",
+    });
+    expect(aiInterpreter.interpret).not.toHaveBeenCalled();
+    expect(harness.stateStore.findByConversationId(conversationId)).toBeUndefined();
+  });
+
+  it("keeps AI fallback disabled by default without changing state", async () => {
+    const harness = createHarness();
+
+    await expect(
+      harness.handler.handle(commandUpdate(13, "хочу что-нибудь")),
+    ).resolves.toEqual({
+      updateId: 1_013,
+      kind: "reply",
+      chatId: 501,
+      text: "Доступные команды: /menu, /add <номер> [количество], /cart, /remove <номер> [количество], /pickup, /delivery, /name <имя>, /phone <телефон>, /address <улица> | <город> | <индекс>, /review.",
+    });
+    expect(harness.stateStore.findByConversationId(conversationId)).toBeUndefined();
+    expect(harness.createOrderForConversation).not.toHaveBeenCalled();
+    expect(harness.prepareCheckoutLink).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    {
+      label: "empty result",
+      createInterpreter: () => fixedAIResult(undefined),
+    },
+    {
+      label: "invalid result",
+      createInterpreter: () =>
+        fixedAIResult({ kind: "command", command: { type: "unknown" } }),
+    },
+    {
+      label: "interpreter error",
+      createInterpreter: (): AIConversationInterpreter => ({
+        interpret: vi.fn(async () => {
+          throw new Error("synthetic AI failure");
+        }),
+      }),
+    },
+  ])("rejects an AI $label without changing state", async ({ createInterpreter }) => {
+    const harness = createHarness(createInterpreter());
+
+    await expect(
+      harness.handler.handle(commandUpdate(14, "свободный текст")),
+    ).resolves.toEqual({
+      updateId: 1_014,
+      kind: "reply",
+      chatId: 501,
+      text: "Не удалось обработать сообщение. Попробуйте сформулировать запрос иначе.",
+    });
+    expect(harness.stateStore.findByConversationId(conversationId)).toBeUndefined();
+    expect(harness.createOrderForConversation).not.toHaveBeenCalled();
+    expect(harness.prepareCheckoutLink).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    {
+      label: "price or total",
+      result: {
+        kind: "command",
+        command: {
+          type: "add_item",
+          menuItemId: "synthetic-item",
+          quantity: 1,
+          totalCents: 1,
+        },
+      },
+    },
+    {
+      label: "delivery fee",
+      result: {
+        kind: "command",
+        command: { type: "choose_delivery", deliveryFeeCents: 1 },
+      },
+    },
+    {
+      label: "checkout",
+      result: { kind: "command", command: { type: "prepare_checkout" } },
+    },
+    {
+      label: "payment status",
+      result: {
+        kind: "command",
+        command: { type: "customer_reports_payment" },
+      },
+    },
+  ])("cannot apply an AI-controlled $label", async ({ result }) => {
+    const harness = createHarness(fixedAIResult(result));
+
+    await expect(
+      harness.handler.handle(commandUpdate(15, "свободный текст")),
+    ).resolves.toMatchObject({
+      kind: "reply",
+      text: "Не удалось обработать сообщение. Попробуйте сформулировать запрос иначе.",
+    });
+    expect(harness.stateStore.findByConversationId(conversationId)).toBeUndefined();
+    expect(harness.createOrderForConversation).not.toHaveBeenCalled();
+    expect(harness.prepareCheckoutLink).not.toHaveBeenCalled();
+  });
+
+  it("keeps an AI-interpreted update idempotent", async () => {
+    const aiInterpreter = fixedAIResult({
+      kind: "command",
+      command: { type: "add_item", menuItemId: "synthetic-item" },
+    });
+    const harness = createHarness(aiInterpreter);
+    const update = commandUpdate(16, "добавь позицию");
+
+    await expect(harness.handler.handle(update)).resolves.toMatchObject({
+      kind: "reply",
+    });
+    const before = harness.stateStore.findByConversationId(conversationId);
+    await expect(harness.handler.handle(update)).resolves.toEqual({
+      updateId: 1_016,
+      kind: "ignored",
+      reason: "duplicate",
+    });
+
+    expect(aiInterpreter.interpret).toHaveBeenCalledOnce();
+    expect(harness.stateStore.findByConversationId(conversationId)).toEqual(
+      before,
+    );
+    expect(harness.conversationAgent.inspect(conversationId)?.items).toEqual([
+      expect.objectContaining({ quantity: 1, lineTotalCents: 625 }),
+    ]);
     expect(harness.createOrderForConversation).toHaveBeenCalledOnce();
     expect(harness.prepareCheckoutLink).not.toHaveBeenCalled();
   });

@@ -1,6 +1,8 @@
 import {
   createAIConversationContext,
   validateAIConversationInterpretation,
+  type AIConversationInterpreter,
+  type AIConversationInterpretation,
   type AIConversationLayerErrorCode,
 } from "../../application/ai-conversation-layer.js";
 import type { LocalConversationStateStore } from "../../application/local-conversation-agent.js";
@@ -20,6 +22,9 @@ import {
 
 export interface TelegramLocalOrderUpdateHandlerDependencies {
   interpreter: Pick<DeterministicTelegramInterpreter, "interpret">;
+  aiFallback?: {
+    interpreter: AIConversationInterpreter;
+  };
   orderFlow: Pick<LocalOrderFlowService, "handle">;
   stateStore: Pick<LocalConversationStateStore, "findByConversationId">;
 }
@@ -41,8 +46,10 @@ export type TelegramLocalOrderUpdateResult =
 
 /**
  * Handles one already-received Telegram update without polling or sending it.
- * The deterministic interpreter may only select an existing command; the
- * local order flow remains authoritative for state, totals and next steps.
+ * The deterministic interpreter always runs first. An explicitly injected AI
+ * fallback may interpret only unsupported plain text; every result is checked
+ * by the existing action validator before the local order flow remains
+ * authoritative for state, totals and next steps.
  */
 export class TelegramLocalOrderUpdateHandler {
   constructor(
@@ -89,17 +96,18 @@ export class TelegramLocalOrderUpdateHandler {
       };
     }
 
+    const context = createAIConversationContext(
+      {
+        channel: "telegram",
+        userId: identity.userId,
+        conversationId: identity.conversationId,
+      },
+      state,
+    );
     let interpreted: unknown;
     try {
       interpreted = await this.dependencies.interpreter.interpret(
-        createAIConversationContext(
-          {
-            channel: "telegram",
-            userId: identity.userId,
-            conversationId: identity.conversationId,
-          },
-          state,
-        ),
+        context,
         message.text,
       );
     } catch {
@@ -110,13 +118,39 @@ export class TelegramLocalOrderUpdateHandler {
       );
     }
 
-    const interpretation = validateAIConversationInterpretation(interpreted);
+    let interpretation = validateAIConversationInterpretation(interpreted);
     if (interpretation === undefined) {
       return this.safeErrorReply(
         update.updateId,
         message.chatId,
         "invalid_interpreter_result",
       );
+    }
+    const aiFallback = this.dependencies.aiFallback;
+    if (
+      aiFallback !== undefined &&
+      this.shouldUseAIFallback(message.text, interpretation)
+    ) {
+      try {
+        interpreted = await aiFallback.interpreter.interpret(
+          context,
+          message.text,
+        );
+      } catch {
+        return this.safeErrorReply(
+          update.updateId,
+          message.chatId,
+          "interpreter_unavailable",
+        );
+      }
+      interpretation = validateAIConversationInterpretation(interpreted);
+      if (interpretation === undefined) {
+        return this.safeErrorReply(
+          update.updateId,
+          message.chatId,
+          "invalid_interpreter_result",
+        );
+      }
     }
     if (interpretation.kind === "needs_clarification") {
       return {
@@ -143,6 +177,17 @@ export class TelegramLocalOrderUpdateHandler {
       );
     }
     return this.renderFlowResult(update.updateId, message.chatId, result);
+  }
+
+  private shouldUseAIFallback(
+    text: string,
+    interpretation: AIConversationInterpretation,
+  ): boolean {
+    return (
+      !text.trimStart().startsWith("/") &&
+      interpretation.kind === "needs_clarification" &&
+      interpretation.reason === "unsupported"
+    );
   }
 
   private renderFlowResult(
