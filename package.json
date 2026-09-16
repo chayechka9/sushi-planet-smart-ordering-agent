@@ -9,7 +9,7 @@
     "build": "tsc -p tsconfig.build.json",
     "start": "node dist/server.js",
     "openai:smoke": "tsx src/scripts/run-openai-smoke.ts",
-    "telegram:poll": "tsx src/scripts/run-telegram-polling.ts",
+    "telegram:runtime": "tsx src/scripts/run-telegram-runtime.ts",
     "telegram:menu:refresh": "tsx src/scripts/run-telegram-menu-refresh.ts",
     "poster:check-menu": "tsx src/scripts/check-poster-menu.ts",
     "sumup:check-access": "tsx src/scripts/check-sumup-access.ts",

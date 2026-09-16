@@ -1,5 +1,6 @@
 import { resolve } from "node:path";
 
+import type { AIConversationInterpreter } from "../application/ai-conversation-layer.js";
 import { LocalConversationAgentService } from "../application/local-conversation-agent.js";
 import { LocalOrderFlowService } from "../application/local-order-flow.js";
 import { createTelegramPollingRuntime } from "../composition/telegram-polling-runtime.js";
@@ -61,13 +62,15 @@ export interface TelegramPollingRunnerOptions {
   databasePath?: string;
   menuSnapshotPath?: string;
   deliveryTariffPath?: string;
+  aiFallback?: { interpreter: AIConversationInterpreter };
   transport?: TelegramApiTransport;
   onEvent?: (event: TelegramPollingRunnerEvent) => void | Promise<void>;
 }
 
 /**
- * Runs only the deterministic Telegram conversation path. It does not import
- * or compose OpenAI, SumUp or Poster and emits only aggregate status events.
+ * Runs the deterministic Telegram path with an optional injected AI fallback.
+ * It does not compose a provider, SumUp or Poster and emits only aggregate
+ * status events.
  */
 export async function runTelegramPolling(
   options: TelegramPollingRunnerOptions,
@@ -119,6 +122,9 @@ export async function runTelegramPolling(
     });
     const updateHandler = new TelegramLocalOrderUpdateHandler({
       interpreter: new DeterministicTelegramInterpreter(menuProvider),
+      ...(options.aiFallback === undefined
+        ? {}
+        : { aiFallback: options.aiFallback }),
       orderFlow: new LocalOrderFlowService({ conversationAgent }),
       stateStore,
     });

@@ -5,6 +5,53 @@
 
 ## 16 сентября 2026
 
+### Explicit Telegram runtime entrypoint и sanitised configuration preflight
+
+- Добавлена единственная публичная команда будущего запуска Telegram runtime:
+  `npm run telegram:runtime -- --confirm-telegram-runtime`. Новый wrapper
+  загружает локальное окружение только при явном запуске команды; импорт
+  модулей, tests, typecheck, build и обычный `src/server.ts` его не исполняют.
+  Старый публичный `telegram:poll` wrapper удалён, чтобы не оставлять обход
+  preflight; existing `TelegramPollingRunner` и его единственный polling loop
+  переиспользуются без дублирования.
+- До делегирования в polling runner новая чистая
+  `preflightTelegramRuntimeConfiguration` проверяет existing Telegram runtime
+  gate/token и existing OpenAI runtime gate/config. Результат содержит только
+  allowlisted `ready`/`blocked`, состояние AI fallback и фиксированную причину:
+  `telegram_runtime_disabled`, `telegram_configuration_invalid` или
+  `ai_configuration_invalid`. Token, API key, model, customer data и значения
+  `.env` в result/events не возвращаются.
+- Telegram требует `TELEGRAM_RUNTIME_ENABLED=true` и непустой локальный
+  `TELEGRAM_BOT_TOKEN`. AI fallback остаётся выключенным по умолчанию даже при
+  готовом Telegram config и наличии API key; включение требует отдельного
+  `OPENAI_RUNTIME_ENABLED=true` и валидной существующей OpenAI config. При любой
+  отсутствующей/невалидной обязательной настройке polling runner не вызывается.
+- Из existing OpenAI composition выделена side-effect-free interpreter-only
+  factory. После успешного preflight entrypoint инъектирует её результат в
+  existing runner/handler; factory сама не выполняет HTTP request, а
+  deterministic commands по-прежнему имеют приоритет над AI fallback.
+- `.env.example` дополнен только комментарием с будущей explicit-командой;
+  имена существующих gates/credentials сохранены, значения токенов или ключей
+  не добавлялись. `.env` не читался вручную и не изменялся.
+- Новые network-free tests с подставными environment и polling starter покрывают
+  valid Telegram config, missing/invalid Telegram config, default-disabled AI,
+  API-key-only disabled state, enabled invalid AI config, enabled valid AI
+  interpreter composition, exact confirmation, отсутствие делегирования при
+  отказе и отсутствие token/key в serialized diagnostics. Старый CLI bypass
+  отсутствует, а `server.ts` проверен как health-only. Global `fetch` в tests
+  запрещён.
+- Новая runtime-команда, Telegram polling/API, OpenAI, Poster, SumUp, checkout,
+  платежи и реальные заказы не запускались. Delivery tariff configuration не
+  менялась.
+- Проверки: точечные тесты — 69 тестов в 5 файлах прошли; `npm test` — 389
+  тестов в 39 файлах прошли; `npm run typecheck`; `npm run build`;
+  `git diff --check` — успешно.
+- Result: complete — последний локальный launch boundary с sanitised preflight
+  реализован; фактический controlled Telegram запуск и внешняя проверка
+  остаются отдельным будущим действием с явным разрешением и реальными локальными
+  настройками.
+- Commit: текущий коммит, содержащий эту запись.
+
 ### Опциональный provider-neutral AI fallback в Telegram handler
 
 - `TelegramLocalOrderUpdateHandler` получил явный optional injection

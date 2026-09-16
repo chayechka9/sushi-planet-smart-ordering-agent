@@ -2,9 +2,11 @@ import "dotenv/config";
 
 import {
   installTelegramShutdownHandlers,
-  runTelegramPolling,
-  type TelegramPollingRunnerEvent,
 } from "./telegram-polling-runner.js";
+import {
+  runTelegramRuntime,
+  type TelegramRuntimeEvent,
+} from "./telegram-runtime.js";
 
 const controller = new AbortController();
 const removeSignalHandlers = installTelegramShutdownHandlers(
@@ -12,12 +14,12 @@ const removeSignalHandlers = installTelegramShutdownHandlers(
   controller,
 );
 
-function writeSafeEvent(event: TelegramPollingRunnerEvent): void {
+function writeSafeEvent(event: TelegramRuntimeEvent): void {
   process.stdout.write(`${JSON.stringify(event)}\n`);
 }
 
 try {
-  const summary = await runTelegramPolling({
+  const summary = await runTelegramRuntime({
     argv: process.argv.slice(2),
     environment: process.env,
     signal: controller.signal,

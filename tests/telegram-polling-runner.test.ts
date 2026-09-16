@@ -961,24 +961,16 @@ describe("controlled Telegram polling runner", () => {
     }
   });
 
-  it("keeps the CLI separate from the ordinary server", () => {
+  it("keeps the low-level runner separate from the ordinary server", () => {
     const packageJson = JSON.parse(
       readFileSync(new URL("../package.json", import.meta.url), "utf8"),
     ) as { scripts: Record<string, string> };
-    const wrapper = readFileSync(
-      new URL("../src/scripts/run-telegram-polling.ts", import.meta.url),
-      "utf8",
-    );
     const server = readFileSync(
       new URL("../src/server.ts", import.meta.url),
       "utf8",
     );
 
-    expect(packageJson.scripts["telegram:poll"]).toBe(
-      "tsx src/scripts/run-telegram-polling.ts",
-    );
-    expect(wrapper).toContain('import "dotenv/config";');
-    expect(wrapper).toContain("installTelegramShutdownHandlers");
+    expect(packageJson.scripts["telegram:poll"]).toBeUndefined();
     expect(server.toLowerCase()).not.toContain("telegram");
     expect(server.toLowerCase()).not.toContain("polling");
   });

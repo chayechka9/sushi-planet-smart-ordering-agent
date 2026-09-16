@@ -80,11 +80,22 @@ Instagram / WhatsApp / Facebook / Telegram
   `server.ts`. Один отдельно разрешённый direct smoke-run через этот CLI
   исторически завершился безопасным `success` для synthetic команды
   `show_menu`; это не является ordinary-server или production wiring.
+- Локальный Telegram path соединяет existing polling adapter, deterministic-first
+  single-update handler, `LocalOrderFlowService` и safe reply; optional AI
+  interpreter передаётся handler только через явную composition. Единственная
+  публичная команда будущего запуска —
+  `npm run telegram:runtime -- --confirm-telegram-runtime`. Перед делегированием
+  в existing polling runner она выполняет sanitised preflight Telegram config и
+  disabled-by-default AI fallback config. Preflight возвращает только
+  allowlisted status/diagnostic codes, без token/key или значений `.env`.
+  Команда и реальные Telegram/OpenAI вызовы в рамках этой реализации не
+  запускались.
 
 Обычный `server.ts` запускает только приложение с health route: он не включает
-SQLite, checkout/verifier, webhook или AI layer автоматически. Sandbox-инструменты
-запускаются отдельно. Локальные тесты с mock-ответами и временной SQLite
-проверяют компоненты, но не доказывают работу внешнего сквозного сценария.
+SQLite, checkout/verifier, webhook, Telegram polling или AI layer автоматически.
+Sandbox-инструменты и Telegram runtime запускаются отдельно. Локальные тесты с
+mock-ответами и временной SQLite проверяют компоненты, но не доказывают работу
+внешнего сквозного сценария.
 
 ### Исторически проверено в тестовых системах
 
@@ -113,13 +124,14 @@ SQLite, checkout/verifier, webhook или AI layer автоматически. S
 полный сквозной сценарий до Poster остаются неподтверждёнными. Причины более
 раннего отсутствия webhook и Poster `422` неизвестны.
 
-Provider-neutral orchestration boundary и локальный provider-specific OpenAI
-adapter с HTTP transport и disabled-by-default runtime composition для команд
-и отдельным controlled smoke-runner уже реализованы; один direct synthetic
-smoke-run исторически подтверждён. Обычный `server.ts`, channel/production
-wiring, языковая семантика за пределами единственного `покажи меню`, реальные
-клиенты, заказной сценарий, передача сотруднику и полноценный журнал событий
-ещё не подтверждены или не реализованы.
+Provider-neutral orchestration boundary, локальный provider-specific OpenAI
+adapter и controlled Telegram runtime composition уже реализованы; один direct
+synthetic OpenAI smoke-run исторически подтверждён. Telegram runtime entrypoint
+теперь имеет sanitised preflight, но сам не запускался. Обычный `server.ts`,
+реальный Telegram polling, channel/production validation, языковая семантика за
+пределами единственного `покажи меню`, реальные клиенты, заказной сценарий,
+передача сотруднику и полноценный журнал событий ещё не подтверждены или не
+реализованы.
 Проект не готов к пилоту.
 
 ## Границы проекта и существующий сайт
