@@ -5,6 +5,42 @@
 
 ## 22 сентября 2026
 
+### Local-only подготовка Poster prepaid sandbox E2E
+
+- Добавлен отдельный pure preparation layer для будущего controlled Poster
+  prepaid sandbox E2E. Typed input принимает ровно один актуальный Poster
+  product и его spot: непустые положительные numeric IDs, имя, положительную
+  целую цену в EUR cents, `quantity: 1` и только pickup. Реальные menu IDs,
+  цены, URL, credentials и tokens в production source не зафиксированы.
+- Preparation переиспользует существующий order core и создаёт только
+  one-item order в `awaiting_payment`; authoritative total вычисляется
+  `calculateOrderTotals`. Pure SumUp preparation делегирует существующему
+  Hosted Checkout builder и не создаёт checkout или payment.
+- Future standard prepaid Poster payload строится существующим
+  `buildPosterIncomingOrderPayload` только после локальных guards: свежий
+  read-only Poster menu snapshot с совпадающими product/spot/name/price,
+  verified SumUp paid-пара того же order и точное one-shot confirmation.
+  Preparation сама не может получить `paid`/`submitted_to_poster` и не вызывает
+  submitter.
+- Добавлены typed ports для будущих fresh-menu, verified-payment и existing
+  one-shot Poster submitter boundaries. Внешний runner, HTTP transport,
+  ordinary `src/server.ts`, Telegram, OpenAI, delivery, generic SumUp E2E
+  scripts и текущая paid-пара не менялись.
+- Synthetic tests покрывают успешную one-item pickup preparation, missing/
+  multiple/invalid product и spot, price/currency/quantity/fulfilment guards,
+  order-core amount в будущих SumUp/Poster payloads, fresh-menu/payment/
+  confirmation gates, отсутствие `fetch` и provider/Poster calls, а также
+  невозможность preparation перейти в `paid` или `submitted_to_poster`.
+- Реальный Poster menu snapshot, новый SumUp checkout/payment и Poster POST не
+  запускались; внешние запросы не выполнялись.
+- Проверки: точечный test — 6 тестов прошли; `npm test` — 400 тестов в 41
+  файле прошли; `npm run typecheck`; `npm run build`; `git diff --check` —
+  успешно.
+- Result: complete — reusable local-only preparation boundary готова;
+  controlled fresh menu read, SumUp payment и один Poster sandbox POST остаются
+  отдельными будущими действиями с явным разрешением.
+- Commit: текущий коммит, содержащий эту запись.
+
 ### Контролируемый SumUp sandbox E2E: paid webhook и duplicate
 
 - Один read-only EUR sandbox merchant GET подтвердил sandbox-аккаунт и валюту
