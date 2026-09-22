@@ -5,6 +5,29 @@
 
 ## 22 сентября 2026
 
+### Контролируемый SumUp sandbox E2E: paid webhook и duplicate
+
+- Один read-only EUR sandbox merchant GET подтвердил sandbox-аккаунт и валюту
+  EUR. После этого ровно один Hosted Checkout был создан на 100 евроцентов;
+  пользователь вручную завершил официальный SumUp Test Mode сценарий.
+- Webhook был доставлен в отдельный локальный E2E server. Server-side
+  verification подтвердила checkout `PAID` и ровно одну успешную transaction;
+  связанная локальная order/payment пара атомарно перешла в `paid`.
+- Один локальный duplicate webhook вернул `duplicate`: внешняя verification и
+  Poster не вызывались, а order/payment timestamps, `paidAt` и сохранённая
+  successful transaction не изменились.
+- После проверки private временные E2E artifacts были очищены. Локальный
+  webhook server и временный ngrok tunnel остановлены, а временные
+  `SUMUP_E2E_PORT` и `SUMUP_E2E_RETURN_URL` удалены из ignored `.env`.
+- Проверки: sandbox/EUR merchant preflight, checkout amount/currency,
+  server-side `PAID`/successful transaction, локальные `paid` statuses,
+  duplicate invariants, отсутствие Poster request и финальный cleanup —
+  успешно.
+- Result: complete — текущий контролируемый SumUp sandbox E2E завершён. Это
+  sandbox evidence, а не подтверждение production-интеграции или готовности к
+  пилоту.
+- Commit: текущий коммит, содержащий эту запись.
+
 ### Локальная Telegram pickup → checkout preparation композиция
 
 - `TelegramLocalOrderUpdateHandler` получил отдельную optional injected-
