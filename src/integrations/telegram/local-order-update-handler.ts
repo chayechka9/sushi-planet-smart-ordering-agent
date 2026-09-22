@@ -84,11 +84,25 @@ export class TelegramLocalOrderUpdateHandler {
     ) {
       return { updateId: update.updateId, kind: "processing_failed" };
     }
-    if (
-      state?.processedMessages.some(
-        (processed) => processed.messageId === identity.messageId,
-      )
-    ) {
+    const prior = state?.processedMessages.find(
+      (processed) => processed.messageId === identity.messageId,
+    );
+    if (prior !== undefined) {
+      if (
+        prior.command?.type === "request_staff" &&
+        prior.response.kind === "staff_handoff_registered"
+      ) {
+        return {
+          updateId: update.updateId,
+          kind: "reply",
+          chatId: message.chatId,
+          text: renderTelegramResponse({
+            kind: "command_applied",
+            command: prior.command,
+            response: prior.response,
+          }),
+        };
+      }
       return {
         updateId: update.updateId,
         kind: "ignored",

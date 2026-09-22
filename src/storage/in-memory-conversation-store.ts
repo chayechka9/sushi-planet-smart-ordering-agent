@@ -1,6 +1,7 @@
 import type {
   LocalConversationState,
   LocalConversationStateStore,
+  PendingStaffHandoffRequest,
 } from "../application/local-conversation-agent.js";
 
 /** Ephemeral test/development implementation; SQLite provides local durability. */
@@ -21,6 +22,24 @@ export class InMemoryConversationStateStore
       if (state.order.id === orderId) return structuredClone(state);
     }
     return undefined;
+  }
+
+  listPendingStaffHandoffRequests(): readonly PendingStaffHandoffRequest[] {
+    return [...this.states.values()]
+      .flatMap((state) =>
+        state.staffHandoffRequest === undefined
+          ? []
+          : [{
+              conversationId: state.conversationId,
+              orderId: state.order.id,
+              ...state.staffHandoffRequest,
+            }],
+      )
+      .sort((left, right) =>
+        left.requestedAt.localeCompare(right.requestedAt) ||
+        left.conversationId.localeCompare(right.conversationId),
+      )
+      .map((request) => structuredClone(request));
   }
 
   save(state: LocalConversationState): void {

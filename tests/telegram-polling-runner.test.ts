@@ -455,7 +455,7 @@ describe("controlled Telegram polling runner", () => {
     }
     expect(transport.sendMessage).toHaveBeenNthCalledWith(5, {
       chatId: 502,
-      text: "Доступные команды: /menu, /add <номер> [количество], /cart, /remove <номер> [количество], /pickup, /delivery, /name <имя>, /phone <телефон>, /address <улица> | <город> | <индекс>, /review.",
+      text: "Доступные команды: /menu, /add <номер> [количество], /cart, /remove <номер> [количество], /pickup, /delivery, /name <имя>, /phone <телефон>, /address <улица> | <город> | <индекс>, /review, /staff.",
       signal: controller.signal,
     });
     expect(transport.sendMessage).toHaveBeenNthCalledWith(6, {
@@ -1109,6 +1109,10 @@ describe("deterministic Telegram interpreter", () => {
       kind: "command",
       command: { type: "review_order" },
     });
+    await expect(interpreter.interpret(context, "/staff")).resolves.toEqual({
+      kind: "command",
+      command: { type: "request_staff" },
+    });
   });
 
   it("rejects malformed values before they reach the order core", async () => {
@@ -1134,6 +1138,10 @@ describe("deterministic Telegram interpreter", () => {
       reason: "missing_information",
     });
     await expect(interpreter.interpret(context, "/review now")).resolves.toEqual({
+      kind: "needs_clarification",
+      reason: "missing_information",
+    });
+    await expect(interpreter.interpret(context, "/staff now")).resolves.toEqual({
       kind: "needs_clarification",
       reason: "missing_information",
     });

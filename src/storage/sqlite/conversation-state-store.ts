@@ -15,6 +15,7 @@ import {
   type ConversationStatus,
   type LocalConversationState,
   type LocalConversationStateStore,
+  type PendingStaffHandoffRequest,
   type ProcessedConversationMessage,
 } from "../../application/local-conversation-agent.js";
 import {
@@ -107,6 +108,22 @@ export class SqliteConversationStateStore
       .prepare(`${SELECT_CONVERSATION} WHERE order_id = ?`)
       .get(orderId) as unknown as ConversationRow | undefined;
     return row === undefined ? undefined : readConversation(row);
+  }
+
+  listPendingStaffHandoffRequests(): readonly PendingStaffHandoffRequest[] {
+    const rows = this.database
+      .prepare(`${SELECT_CONVERSATION} ORDER BY updated_at, conversation_id`)
+      .all() as unknown as ConversationRow[];
+    return rows.flatMap((row) => {
+      const state = readConversation(row);
+      return state.staffHandoffRequest === undefined
+        ? []
+        : [{
+            conversationId: state.conversationId,
+            orderId: state.order.id,
+            ...state.staffHandoffRequest,
+          }];
+    });
   }
 
   save(state: LocalConversationState): void {
@@ -279,6 +296,9 @@ function serializeConversation(state: LocalConversationState): string {
     ...(state.checkout === undefined
       ? {}
       : { checkout: { ...state.checkout } }),
+    ...(state.staffHandoffRequest === undefined
+      ? {}
+      : { staffHandoffRequest: { ...state.staffHandoffRequest } }),
     backendStatus: { ...state.backendStatus },
     processedMessages: state.processedMessages.map((message) => ({
       messageId: message.messageId,
@@ -352,6 +372,10 @@ function readState(value: unknown): LocalConversationState {
     record.checkout === undefined
       ? undefined
       : readCheckout(record.checkout);
+  const staffHandoffRequest =
+    record.staffHandoffRequest === undefined
+      ? undefined
+      : readStaffHandoffRequest(record.staffHandoffRequest);
   const state: LocalConversationState = {
     conversationId: requireString(record.conversationId, "Conversation ID"),
     identity: readIdentity(record.identity),
@@ -360,6 +384,7 @@ function readState(value: unknown): LocalConversationState {
     fulfilmentChoice: requireFulfilmentChoice(record.fulfilmentChoice),
     customer: readCustomer(record.customer),
     ...(checkout === undefined ? {} : { checkout }),
+    ...(staffHandoffRequest === undefined ? {} : { staffHandoffRequest }),
     backendStatus: readBackendStatus(record.backendStatus),
     processedMessages: readProcessedMessages(record.processedMessages),
     createdAt: requireTimestamp(record.createdAt, "Conversation createdAt"),
@@ -378,11 +403,23 @@ function assertValidState(state: LocalConversationState): void {
   const customer = readCustomer(state.customer);
   const backendStatus = readBackendStatus(state.backendStatus);
   const messages = readProcessedMessages(state.processedMessages);
+  const staffHandoffRequest = state.staffHandoffRequest === undefined
+    ? undefined
+    : readStaffHandoffRequest(state.staffHandoffRequest);
   const createdAt = requireTimestamp(state.createdAt, "Conversation createdAt");
   const updatedAt = requireTimestamp(state.updatedAt, "Conversation updatedAt");
   if (updatedAt < createdAt) {
     throw new SqliteConversationStateStoreError(
       "Conversation updatedAt precedes createdAt",
+    );
+  }
+  if (
+    staffHandoffRequest !== undefined &&
+    (staffHandoffRequest.requestedAt < createdAt ||
+      staffHandoffRequest.requestedAt > updatedAt)
+  ) {
+    throw new SqliteConversationStateStoreError(
+      "Staff handoff timestamp is outside the conversation lifetime",
     );
   }
   if (state.status !== statusFromBackend(backendStatus)) {
@@ -494,6 +531,15 @@ function assertAllowedUpdate(
     );
   }
   if (
+    existing.staffHandoffRequest !== undefined &&
+    JSON.stringify(existing.staffHandoffRequest) !==
+      JSON.stringify(next.staffHandoffRequest)
+  ) {
+    throw new SqliteConversationStateStoreError(
+      "Staff handoff request is immutable",
+    );
+  }
+  if (
     existing.backendStatus.payment === "payment_confirmed" &&
     next.backendStatus.payment !== "payment_confirmed"
   ) {
@@ -541,6 +587,24 @@ function readCheckout(value: unknown): ConversationCheckoutState {
       "Checkout reference",
     ),
     checkoutLink: requireString(record.checkoutLink, "Checkout link"),
+  };
+}
+
+function readStaffHandoffRequest(
+  value: unknown,
+): NonNullable<LocalConversationState["staffHandoffRequest"]> {
+  const record = requireRecord(value, "Staff handoff request");
+  if (record.reason !== "customer_requested") {
+    throw new SqliteConversationStateStoreError(
+      "Staff handoff reason is invalid",
+    );
+  }
+  return {
+    requestedAt: requireTimestamp(
+      record.requestedAt,
+      "Staff handoff requestedAt",
+    ),
+    reason: "customer_requested",
   };
 }
 
@@ -685,6 +749,12 @@ function requireFingerprint(value: unknown, label: string): string {
 
 function readResponse(value: unknown): ConversationAgentResponse {
   const record = requireRecord(value, "Conversation response");
+  if (record.kind === "staff_handoff_registered") {
+    return {
+      kind: "staff_handoff_registered",
+      request: readStaffHandoffRequest(record.request),
+    };
+  }
   const order = readOrderView(record.order);
   switch (record.kind) {
     case "menu":
@@ -842,6 +912,12 @@ function cloneCustomer(
 }
 
 function cloneResponse(response: ConversationAgentResponse): ConversationAgentResponse {
+  if (response.kind === "staff_handoff_registered") {
+    return {
+      kind: response.kind,
+      request: { ...response.request },
+    };
+  }
   const order = {
     ...response.order,
     items: response.order.items.map((item) => ({ ...item })),

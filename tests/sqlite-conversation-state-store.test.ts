@@ -175,6 +175,58 @@ describe("SQLite conversation state store", () => {
     });
   });
 
+  it("persists and lists one pending staff handoff after reopening", async () => {
+    const databasePath = createDatabasePath();
+    let store = openStore(databasePath);
+    let agent = createAgent(
+      store,
+      "conversation-staff",
+      "order-staff",
+    );
+    const first = await send(agent, "conversation-staff", "staff-message", {
+      type: "request_staff",
+    });
+
+    expect(first).toEqual({
+      kind: "staff_handoff_registered",
+      request: {
+        requestedAt: initialNow.toISOString(),
+        reason: "customer_requested",
+      },
+    });
+
+    store = reopenStore(store, databasePath);
+    agent = createAgent(store, "conversation-staff", "unused-order");
+    const expectedRequest = {
+      conversationId: "conversation-staff",
+      orderId: "order-staff",
+      requestedAt: initialNow.toISOString(),
+      reason: "customer_requested" as const,
+    };
+
+    expect(store.listPendingStaffHandoffRequests()).toEqual([expectedRequest]);
+    expect(agent.listPendingStaffHandoffRequests()).toEqual([expectedRequest]);
+    await expect(
+      send(agent, "conversation-staff", "staff-message", {
+        type: "request_staff",
+      }),
+    ).resolves.toEqual(first);
+    expect(store.listPendingStaffHandoffRequests()).toEqual([expectedRequest]);
+    expect(store.findByConversationId("conversation-staff")).toMatchObject({
+      conversationId: "conversation-staff",
+      order: { id: "order-staff", status: "draft" },
+      staffHandoffRequest: {
+        requestedAt: initialNow.toISOString(),
+        reason: "customer_requested",
+      },
+      processedMessages: [{ messageId: "staff-message" }],
+      backendStatus: {
+        payment: "not_requested",
+        orderSubmission: "not_started",
+      },
+    });
+  });
+
   it("persists cart, customer, delivery, checkout references and awaiting status", async () => {
     const databasePath = createDatabasePath();
     let store = openStore(databasePath);

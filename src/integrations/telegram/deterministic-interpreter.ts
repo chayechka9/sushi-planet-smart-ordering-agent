@@ -39,7 +39,8 @@ export class DeterministicTelegramInterpreter
     if (
       command.startsWith("/pickup ") ||
       command.startsWith("/delivery ") ||
-      command.startsWith("/review ")
+      command.startsWith("/review ") ||
+      command.startsWith("/staff ")
     ) {
       return missingInformation();
     }
@@ -62,6 +63,8 @@ export class DeterministicTelegramInterpreter
         return { kind: "command", command: { type: "choose_delivery" } };
       case "/review":
         return { kind: "command", command: { type: "review_order" } };
+      case "/staff":
+        return { kind: "command", command: { type: "request_staff" } };
       default:
         return { kind: "needs_clarification", reason: "unsupported" };
     }

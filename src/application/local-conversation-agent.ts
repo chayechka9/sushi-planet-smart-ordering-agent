@@ -41,6 +41,19 @@ export interface ConversationCheckoutState {
   checkoutLink: string;
 }
 
+export type StaffHandoffReason = "customer_requested";
+
+export interface ConversationStaffHandoffRequest {
+  requestedAt: string;
+  reason: StaffHandoffReason;
+}
+
+export interface PendingStaffHandoffRequest
+  extends ConversationStaffHandoffRequest {
+  conversationId: string;
+  orderId: string;
+}
+
 export interface ConversationIdentity {
   channel: string;
   userId: string;
@@ -119,6 +132,10 @@ export type ConversationAgentResponse =
   | {
       kind: "awaiting_verified_payment";
       order: ConversationOrderView;
+    }
+  | {
+      kind: "staff_handoff_registered";
+      request: ConversationStaffHandoffRequest;
     };
 
 export type ConversationAgentCommand =
@@ -137,6 +154,7 @@ export type ConversationAgentCommand =
     }
   | { type: "set_delivery_address"; address: DeliveryAddress }
   | { type: "review_order" }
+  | { type: "request_staff" }
   | { type: "prepare_checkout" }
   | { type: "customer_reports_payment" };
 
@@ -164,6 +182,7 @@ export interface LocalConversationState {
   fulfilmentChoice: "pickup" | "delivery" | null;
   customer: ConversationCustomerState;
   checkout?: ConversationCheckoutState;
+  staffHandoffRequest?: ConversationStaffHandoffRequest;
   backendStatus: ConversationBackendStatus;
   processedMessages: readonly ProcessedConversationMessage[];
   createdAt: string;
@@ -175,6 +194,7 @@ export interface LocalConversationStateStore {
     conversationId: string,
   ): LocalConversationState | undefined;
   findByOrderId(orderId: string): LocalConversationState | undefined;
+  listPendingStaffHandoffRequests(): readonly PendingStaffHandoffRequest[];
   save(state: LocalConversationState): void;
 }
 
@@ -318,6 +338,16 @@ export class LocalConversationAgentService {
     return state === undefined ? undefined : toOrderView(state);
   }
 
+  listPendingStaffHandoffRequests(): readonly PendingStaffHandoffRequest[] {
+    try {
+      return this.dependencies.stateStore
+        .listPendingStaffHandoffRequests()
+        .map((request) => ({ ...request }));
+    } catch {
+      throw new ConversationAgentError("state_unavailable");
+    }
+  }
+
   private async applyCommand(
     state: LocalConversationState,
     command: ConversationAgentCommand,
@@ -359,11 +389,30 @@ export class LocalConversationAgentService {
           },
         };
       }
+      case "request_staff":
+        return this.requestStaff(state);
       case "prepare_checkout":
         return this.prepareCheckout(state);
       case "customer_reports_payment":
         return this.recordCustomerPaymentReport(state);
     }
+  }
+
+  private requestStaff(state: LocalConversationState): CommandResult {
+    const request = state.staffHandoffRequest ?? {
+      requestedAt: this.now().toISOString(),
+      reason: "customer_requested" as const,
+    };
+    const nextState = state.staffHandoffRequest === undefined
+      ? { ...state, staffHandoffRequest: request }
+      : state;
+    return {
+      state: nextState,
+      response: {
+        kind: "staff_handoff_registered",
+        request: { ...request },
+      },
+    };
   }
 
   private addMenuItem(
@@ -823,6 +872,7 @@ export function parseConversationAgentCommand(
     case "choose_pickup":
     case "choose_delivery":
     case "review_order":
+    case "request_staff":
     case "prepare_checkout":
     case "customer_reports_payment":
       return hasExactKeys(value, ["type"])

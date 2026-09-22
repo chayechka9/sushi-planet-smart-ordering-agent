@@ -191,7 +191,7 @@ export function renderTelegramResponse(
     case "needs_clarification": {
       switch (response.reason) {
         case "unsupported":
-          return "Доступные команды: /menu, /add <номер> [количество], /cart, /remove <номер> [количество], /pickup, /delivery, /name <имя>, /phone <телефон>, /address <улица> | <город> | <индекс>, /review.";
+          return "Доступные команды: /menu, /add <номер> [количество], /cart, /remove <номер> [количество], /pickup, /delivery, /name <имя>, /phone <телефон>, /address <улица> | <город> | <индекс>, /review, /staff.";
         case "missing_information":
           return "Проверьте формат и порядок команд: /add <номер> [количество], /remove <номер из корзины> [количество], /name <имя>, /phone <телефон>, /delivery перед /address <улица> | <город> | <индекс>.";
         case "ambiguous":
@@ -260,6 +260,8 @@ function renderConversationResponse(response: ConversationAgentResponse): string
       );
     case "awaiting_verified_payment":
       return "Ожидаем подтверждение оплаты от платёжного сервиса.";
+    case "staff_handoff_registered":
+      return "Запрос помощи зарегистрирован локально. Канал уведомления сотрудников пока не подключён.";
   }
 }
 

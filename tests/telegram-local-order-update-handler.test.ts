@@ -145,6 +145,76 @@ describe("controlled Telegram local order update handler", () => {
     expect(harness.prepareCheckoutLink).not.toHaveBeenCalled();
   });
 
+  it("persists one explicit staff request and replays its safe result without external effects", async () => {
+    const harness = createHarness();
+    const update = commandUpdate(2, "/staff");
+    const expectedReply =
+      "Запрос помощи зарегистрирован локально. Канал уведомления сотрудников пока не подключён.";
+
+    await expect(harness.handler.handle(update)).resolves.toEqual({
+      updateId: 1_002,
+      kind: "reply",
+      chatId: 501,
+      text: expectedReply,
+      nextStep: {
+        kind: "collecting_order",
+        missingFields: ["cart", "fulfilment", "first_name", "phone"],
+      },
+    });
+    const stored = harness.stateStore.findByConversationId(conversationId);
+
+    expect(harness.conversationAgent.listPendingStaffHandoffRequests()).toEqual([
+      {
+        conversationId,
+        orderId: "ord_telegram_local_1",
+        requestedAt: fixedNow.toISOString(),
+        reason: "customer_requested",
+      },
+    ]);
+    expect(stored).toMatchObject({
+      order: { status: "draft" },
+      staffHandoffRequest: {
+        requestedAt: fixedNow.toISOString(),
+        reason: "customer_requested",
+      },
+      backendStatus: {
+        payment: "not_requested",
+        orderSubmission: "not_started",
+      },
+      processedMessages: [{
+        messageId: "telegram:message:2",
+        command: { type: "request_staff" },
+        response: {
+          kind: "staff_handoff_registered",
+          request: {
+            requestedAt: fixedNow.toISOString(),
+            reason: "customer_requested",
+          },
+        },
+      }],
+    });
+    expect(stored).not.toHaveProperty("checkout");
+    expect(Object.keys(stored?.staffHandoffRequest ?? {}).sort()).toEqual([
+      "reason",
+      "requestedAt",
+    ]);
+    expect(JSON.stringify(stored)).not.toContain("/staff");
+
+    await expect(harness.handler.handle(update)).resolves.toEqual({
+      updateId: 1_002,
+      kind: "reply",
+      chatId: 501,
+      text: expectedReply,
+    });
+    expect(harness.stateStore.findByConversationId(conversationId)).toEqual(
+      stored,
+    );
+    expect(harness.stateStore.listPendingStaffHandoffRequests()).toHaveLength(1);
+    expect(expectedReply).not.toMatch(/сотрудник уведомлён|ответит через|минут/iu);
+    expect(harness.createOrderForConversation).toHaveBeenCalledOnce();
+    expect(harness.prepareCheckoutLink).not.toHaveBeenCalled();
+  });
+
   it("connects a command chain to pickup readiness without creating checkout", async () => {
     const harness = createHarness();
 
@@ -369,7 +439,7 @@ describe("controlled Telegram local order update handler", () => {
       updateId: 1_012,
       kind: "reply",
       chatId: 501,
-      text: "Доступные команды: /menu, /add <номер> [количество], /cart, /remove <номер> [количество], /pickup, /delivery, /name <имя>, /phone <телефон>, /address <улица> | <город> | <индекс>, /review.",
+      text: "Доступные команды: /menu, /add <номер> [количество], /cart, /remove <номер> [количество], /pickup, /delivery, /name <имя>, /phone <телефон>, /address <улица> | <город> | <индекс>, /review, /staff.",
     });
     expect(aiInterpreter.interpret).not.toHaveBeenCalled();
     expect(harness.stateStore.findByConversationId(conversationId)).toBeUndefined();
@@ -384,7 +454,7 @@ describe("controlled Telegram local order update handler", () => {
       updateId: 1_013,
       kind: "reply",
       chatId: 501,
-      text: "Доступные команды: /menu, /add <номер> [количество], /cart, /remove <номер> [количество], /pickup, /delivery, /name <имя>, /phone <телефон>, /address <улица> | <город> | <индекс>, /review.",
+      text: "Доступные команды: /menu, /add <номер> [количество], /cart, /remove <номер> [количество], /pickup, /delivery, /name <имя>, /phone <телефон>, /address <улица> | <город> | <индекс>, /review, /staff.",
     });
     expect(harness.stateStore.findByConversationId(conversationId)).toBeUndefined();
     expect(harness.createOrderForConversation).not.toHaveBeenCalled();

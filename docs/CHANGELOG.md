@@ -5,6 +5,41 @@
 
 ## 22 сентября 2026
 
+### Локальный persisted staff-handoff request
+
+- Controlled private Telegram flow получил явную deterministic-команду
+  `/staff`. Она проходит через существующие interpreter,
+  `LocalOrderFlowService`, `LocalConversationAgentService` и conversation
+  duplicate guard без отдельного flow.
+- В существующем conversation state сохраняется только immutable structured
+  handoff-факт: `requestedAt` и фиксированный reason
+  `customer_requested`. Он остаётся связан с уже существующими conversation и
+  order IDs; raw text, token, адрес, телефон и новые персональные поля для
+  handoff не сохраняются.
+- SQLite и in-memory repository получили read-only список pending handoff-
+  запросов, а application service — безопасную read-only projection с
+  conversation ID, order ID, timestamp и reason. SQLite state переживает
+  закрытие и повторное открытие базы; отдельная таблица или параллельная
+  conversation architecture не создавались.
+- Повтор того же Telegram message возвращает сохранённое bounded-подтверждение
+  и не создаёт второй request. Ответ честно сообщает, что запрос
+  зарегистрирован локально и канал уведомления сотрудников пока не подключён.
+- Checkout не создаётся; payment/order/Poster statuses не меняются. Staff UI,
+  notifier, HTTP route, внешний staff channel и lifecycle закрытия request ещё
+  не реализованы. Telegram polling/API, OpenAI, SumUp, Poster, checkout,
+  webhook и любые сетевые вызовы не запускались; `src/server.ts` не менялся.
+- Synthetic tests покрывают успешный `/staff`, сохранённый duplicate-result,
+  один pending request, SQLite reopen/read, отсутствие checkout и network,
+  неизменные payment/Poster snapshots и безопасный клиентский ответ без ложного
+  утверждения об уведомлении сотрудника.
+- Проверки: точечные тесты — 51 тест в 3 файлах прошёл; `npm test` — 391 тест
+  в 39 файлах прошёл; `npm run typecheck`; `npm run build`;
+  `git diff --check` — успешно.
+- Result: complete — узкий локальный persisted handoff request реализован;
+  фактическое уведомление/получение сотрудником и staff UI остаются отдельными
+  будущими этапами.
+- Commit: текущий коммит, содержащий эту запись.
+
 ### Обновление транзитивной зависимости fast-uri
 
 - В `package-lock.json` транзитивный `fast-uri` обновлён с `4.1.2` до
