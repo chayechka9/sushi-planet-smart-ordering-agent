@@ -12,6 +12,7 @@
     "telegram:runtime": "tsx src/scripts/run-telegram-runtime.ts",
     "telegram:menu:refresh": "tsx src/scripts/run-telegram-menu-refresh.ts",
     "poster:check-menu": "tsx src/scripts/check-poster-menu.ts",
+    "poster:sandbox:e2e:create-checkout": "tsx src/scripts/create-poster-prepaid-sandbox-e2e-checkout.ts",
     "sumup:check-access": "tsx src/scripts/check-sumup-access.ts",
     "sumup:e2e:serve": "tsx src/scripts/run-sumup-sandbox-e2e-webhook.ts",
     "sumup:e2e:create": "tsx src/scripts/create-sumup-sandbox-e2e-checkout.ts",

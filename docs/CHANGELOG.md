@@ -5,6 +5,47 @@
 
 ## 22 сентября 2026
 
+### Controlled Poster prepaid sandbox checkout runner — только код
+
+- Добавлена отдельная disabled-by-default команда
+  `poster:sandbox:e2e:create-checkout`. Без точного флага
+  `--confirm-one-poster-prepaid-e2e-checkout` она останавливается до загрузки
+  `.env`, файлового lifecycle или checkout dependency и возвращает
+  `checkoutCount: 0`.
+- Подтверждённый будущий запуск требует все menu-поля явно: product ID, spot
+  ID, name, integer price cents, EUR, quantity `1`, pickup и timestamp свежего
+  read-only snapshot. Production source не содержит hard-coded menu IDs, цен
+  или названий. Валидация и authoritative сумма переиспользуют существующие
+  `preparePosterPrepaidSandboxE2e`, order core и
+  `buildPreparedSumUpCheckout`; для выбранного test fixture сумма равна 1000
+  EUR cents / €10.00.
+- До единственного injected SumUp checkout call сохраняется private attempt
+  marker. `checkoutLimit` и `paymentAttemptLimit` равны `1`; network, HTTP или
+  ambiguous failure оставляет marker и блокирует повтор без retry.
+- Новый ignored `.poster-prepaid-e2e` lifecycle отделён от generic
+  `.sumup-e2e`. Он сохраняет отдельную SQLite order/payment пару только в
+  `awaiting_payment`/`pending`, безопасные correlation/fingerprint/locator
+  данные и spot ID; hosted checkout URL хранится отдельно в private ignored
+  файле. Card data, raw provider response и customer data не сохраняются.
+- Runner не имеет Poster submitter dependency, не выполняет Poster POST и не
+  может установить `paid` или `submitted_to_poster`. Будущие verified payment
+  и Poster handoff остаются отдельными командами с отдельным явным
+  подтверждением.
+- Tests покрывают disabled gate без fetch/file mutation, актуальный one-item
+  pickup input, authoritative 1000 cents, invalid product/spot/name/price/
+  currency/quantity/fulfilment, durable one-shot и ambiguous-result guards,
+  отдельность от generic state, pending-only SQLite и отсутствие Poster POST.
+- Новый runner не запускался. SumUp, Poster, Telegram, OpenAI, webhook,
+  checkout и платёж не вызывались; `.env` и существующие private E2E artifacts
+  не менялись.
+- Проверки: точечный test — 12 тестов прошли; `npm test` — 412 тестов в 42
+  файлах прошли; `npm run typecheck`; `npm run build`; `git diff --check` —
+  успешно.
+- Result: complete — local/injected one-shot checkout runner реализован;
+  реальный sandbox checkout, verified payment и Poster submission остаются
+  отдельными будущими контролируемыми действиями.
+- Commit: текущий коммит, содержащий эту запись.
+
 ### Local-only подготовка Poster prepaid sandbox E2E
 
 - Добавлен отдельный pure preparation layer для будущего controlled Poster

@@ -13,6 +13,7 @@ coverage/
 *.db-shm
 *.db-wal
 .sumup-e2e/
+.poster-prepaid-e2e/
 /.telegram-menu-snapshot.json
 /.telegram-menu-snapshot.json.tmp-*
 /.telegram-delivery-tariffs.json
