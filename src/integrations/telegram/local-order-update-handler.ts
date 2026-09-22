@@ -5,7 +5,11 @@ import {
   type AIConversationInterpretation,
   type AIConversationLayerErrorCode,
 } from "../../application/ai-conversation-layer.js";
-import type { LocalConversationStateStore } from "../../application/local-conversation-agent.js";
+import type {
+  ConversationAgentCommand,
+  ConversationAgentResponse,
+  LocalConversationStateStore,
+} from "../../application/local-conversation-agent.js";
 import type {
   LocalOrderFlowResult,
   LocalOrderFlowService,
@@ -26,6 +30,10 @@ export interface TelegramLocalOrderUpdateHandlerDependencies {
     interpreter: AIConversationInterpreter;
   };
   orderFlow: Pick<LocalOrderFlowService, "handle">;
+  pickupCheckoutPreparation?: Pick<
+    LocalOrderFlowService,
+    "preparePickupCheckout"
+  >;
   stateStore: Pick<LocalConversationStateStore, "findByConversationId">;
 }
 
@@ -102,6 +110,41 @@ export class TelegramLocalOrderUpdateHandler {
             response: prior.response,
           }),
         };
+      }
+      if (
+        this.dependencies.pickupCheckoutPreparation !== undefined &&
+        state?.checkout !== undefined &&
+        state.fulfilmentChoice === "pickup" &&
+        prior.command !== undefined &&
+        state.processedMessages.some(
+          (processed) =>
+            processed.messageId === checkoutPreparationId(identity.messageId) &&
+            processed.command?.type === "prepare_checkout" &&
+            processed.response.kind === "checkout_ready",
+        )
+      ) {
+        let preparation: LocalOrderFlowResult;
+        try {
+          preparation = await this.dependencies.pickupCheckoutPreparation
+            .preparePickupCheckout({
+              conversationId: identity.conversationId,
+              preparationId: checkoutPreparationId(identity.messageId),
+              identity: { channel: "telegram", userId: identity.userId },
+            });
+        } catch {
+          return this.safeErrorReply(
+            update.updateId,
+            message.chatId,
+            "conversation_unavailable",
+          );
+        }
+        return this.renderPickupCheckoutResult(
+          update.updateId,
+          message.chatId,
+          prior.command,
+          prior.response,
+          preparation,
+        );
       }
       return {
         updateId: update.updateId,
@@ -190,6 +233,35 @@ export class TelegramLocalOrderUpdateHandler {
         "conversation_unavailable",
       );
     }
+    if (
+      result.status === "accepted" &&
+      result.nextStep.kind === "payment_boundary_ready" &&
+      result.summary.fulfilment === "pickup" &&
+      this.dependencies.pickupCheckoutPreparation !== undefined
+    ) {
+      let preparation: LocalOrderFlowResult;
+      try {
+        preparation = await this.dependencies.pickupCheckoutPreparation
+          .preparePickupCheckout({
+            conversationId: identity.conversationId,
+            preparationId: checkoutPreparationId(identity.messageId),
+            identity: { channel: "telegram", userId: identity.userId },
+          });
+      } catch {
+        return this.safeErrorReply(
+          update.updateId,
+          message.chatId,
+          "conversation_unavailable",
+        );
+      }
+      return this.renderPickupCheckoutResult(
+        update.updateId,
+        message.chatId,
+        result.action,
+        result.response,
+        preparation,
+      );
+    }
     return this.renderFlowResult(update.updateId, message.chatId, result);
   }
 
@@ -237,6 +309,43 @@ export class TelegramLocalOrderUpdateHandler {
     };
   }
 
+  private renderPickupCheckoutResult(
+    updateId: number,
+    chatId: number,
+    sourceAction: ConversationAgentCommand,
+    sourceResponse: ConversationAgentResponse,
+    preparation: LocalOrderFlowResult,
+  ): TelegramLocalOrderUpdateResult {
+    if (
+      preparation.status === "rejected" ||
+      preparation.response.kind !== "checkout_ready"
+    ) {
+      return this.safeErrorReply(
+        updateId,
+        chatId,
+        preparation.status === "rejected"
+          ? mapFlowRejection(preparation.reason)
+          : "conversation_unavailable",
+        preparation.nextStep,
+      );
+    }
+
+    const baseReply = renderTelegramResponse({
+      kind: "command_applied",
+      command: sourceAction,
+      response: sourceResponse,
+    });
+    return {
+      updateId,
+      kind: "reply",
+      chatId,
+      text: limitTelegramText(
+        `${baseReply}\nЗаказ подготовлен к следующему шагу оплаты. Оплата не выполнена.`,
+      ),
+      nextStep: preparation.nextStep,
+    };
+  }
+
   private safeErrorReply(
     updateId: number,
     chatId: number,
@@ -251,6 +360,10 @@ export class TelegramLocalOrderUpdateHandler {
       ...(nextStep === undefined ? {} : { nextStep }),
     };
   }
+}
+
+function checkoutPreparationId(messageId: string): string {
+  return `${messageId}:pickup-checkout`;
 }
 
 function mapFlowRejection(

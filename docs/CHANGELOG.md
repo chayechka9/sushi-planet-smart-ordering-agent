@@ -5,6 +5,48 @@
 
 ## 22 сентября 2026
 
+### Локальная Telegram pickup → checkout preparation композиция
+
+- `TelegramLocalOrderUpdateHandler` получил отдельную optional injected-
+  границу pickup checkout preparation. Она отсутствует в обычной polling
+  composition и срабатывает только для private text conversation, когда
+  существующий order core возвращает authoritative ready pickup: непустая
+  корзина, pickup, имя, телефон и финальная EUR-cent сумма.
+- `LocalOrderFlowService` получил явный `preparePickupCheckout`, который не
+  принимает внешнюю Telegram/AI-команду `prepare_checkout`, а только после
+  повторной проверки текущего core summary делегирует в существующий
+  `LocalConversationAgentService`. Тот переиспользует прежний injected
+  `LocalConversationCheckoutFlow`; integration-тест соединяет его с
+  существующим `LocalBackendFlowService` и fake
+  `LocalBackendCheckoutCreator`. Второй checkout flow не создан.
+- Готовый pickup переводится только в локальные `awaiting_payment`/`pending` и
+  сохраняет order/payment и checkout identity в общей временной SQLite.
+  Provider verification, `paid`, Poster handoff и внешняя отправка не
+  выполняются. Незавершённый pickup и delivery не вызывают checkout
+  preparation.
+- Для исходного Telegram message используется стабильный внутренний
+  preparation ID. Duplicate того же update возвращает тот же безопасный ответ,
+  а сохранённый checkout после закрытия и повторного открытия SQLite
+  переиспользуется без второго вызова checkout creator.
+- Ответ клиенту не раскрывает сохранённый fake checkout locator и сообщает
+  только: заказ подготовлен к следующему шагу оплаты, оплата не выполнена. Он
+  не содержит выдуманной ссылки и не утверждает `paid` или provider success.
+- Новые integration-тесты используют только synthetic fixtures, fake checkout
+  creator/verifier/Poster submitter и запрещённый global `fetch`. Они покрывают
+  incomplete pickup без вызова, готовый pickup с ровно одним intent, duplicate,
+  SQLite reopen/reuse, pending-not-paid state и безопасный reply.
+- Граница: local/injected only; no provider call. Реальные SumUp, Poster,
+  Telegram API/polling, OpenAI, webhook, staff notifier, `.env` и обычный
+  `src/server.ts` не запускались и не подключались; delivery, цены, меню,
+  тарифы, payment verification и Poster handoff не менялись.
+- Проверки: точечные тесты — 23 теста в 3 файлах прошли; `npm test` — 394 теста
+  в 40 файлах прошли; `npm run typecheck`; `npm run build`;
+  `git diff --check` — успешно.
+- Result: complete — минимальная локальная injected-композиция готового pickup
+  с сохранённым checkout intent реализована; реальный provider checkout/link и
+  фактическая оплата остаются вне scope.
+- Commit: текущий коммит, содержащий эту запись.
+
 ### Локальный persisted staff-handoff request
 
 - Controlled private Telegram flow получил явную deterministic-команду

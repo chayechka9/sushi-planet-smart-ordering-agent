@@ -17,6 +17,12 @@ export interface LocalOrderFlowInput {
   identity?: ConversationIdentity;
 }
 
+export interface LocalPickupCheckoutPreparationInput {
+  conversationId: string;
+  preparationId: string;
+  identity?: ConversationIdentity;
+}
+
 export type LocalOrderNextStep =
   | {
       kind: "collecting_order";
@@ -113,6 +119,53 @@ export class LocalOrderFlowService {
     return {
       status: "accepted",
       action,
+      response,
+      summary,
+      nextStep: determineNextStep(summary),
+    };
+  }
+
+  async preparePickupCheckout(
+    input: LocalPickupCheckoutPreparationInput,
+  ): Promise<LocalOrderFlowResult> {
+    const current = this.inspect(input.conversationId);
+    if (
+      current === undefined ||
+      current.fulfilment !== "pickup" ||
+      current.missingFields.length !== 0 ||
+      !current.totalIsFinal ||
+      (current.status !== "draft" && current.status !== "awaiting_payment")
+    ) {
+      return this.rejected(
+        input.conversationId,
+        current === undefined ? "flow_unavailable" : "external_step_not_allowed",
+      );
+    }
+
+    let response: ConversationAgentResponse;
+    try {
+      response = await this.dependencies.conversationAgent.handle({
+        conversationId: input.conversationId,
+        messageId: input.preparationId,
+        command: { type: "prepare_checkout" },
+        ...(input.identity === undefined ? {} : { identity: input.identity }),
+      });
+    } catch (error) {
+      return this.rejected(
+        input.conversationId,
+        error instanceof ConversationAgentError
+          ? error.code
+          : "flow_unavailable",
+      );
+    }
+
+    const summary = this.inspect(input.conversationId);
+    if (summary === undefined || response.kind !== "checkout_ready") {
+      return { status: "rejected", reason: "flow_unavailable" };
+    }
+    return {
+      status: "accepted",
+      action: { type: "prepare_checkout" },
       response,
       summary,
       nextStep: determineNextStep(summary),
