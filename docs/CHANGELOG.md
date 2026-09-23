@@ -5,6 +5,41 @@
 
 ## 23 сентября 2026
 
+### Controlled Poster-prepaid paid recovery — только локальный код
+
+- Добавлена отдельная disabled-by-default команда
+  `poster:sandbox:e2e:recover-paid` с точным флагом
+  `--confirm-one-poster-prepaid-paid-recovery`. Без него команда завершается до
+  загрузки `.env`, private lifecycle, SQLite и network dependencies.
+- Recovery работает только с `.poster-prepaid-e2e`: сверяет existing checkout
+  attempt/recovery locator, прежний webhook verification marker и ту же SQLite
+  order/payment пару. Отдельный private `recovery-attempt.json` создаётся через
+  exclusive write перед lifecycle validation и provider verification; ошибки
+  network/HTTP/invalid/mismatch оставляют marker и блокируют повтор.
+- Путь переиспользует существующий SumUp sandbox verifier: один checkout GET,
+  затем только при `PAID` и одной допустимой `SUCCESSFUL` transaction один
+  transaction GET. Проверяются checkout/reference/merchant/EUR/amount,
+  transaction ID/status/merchant/EUR/amount и повторная локальная сверка до
+  существующей атомарной SQLite reconciliation. Если пара уже `paid`, повтор
+  возвращает `duplicate` без GET и изменения timestamps или transaction.
+- Команда не содержит Poster submitter, не вызывает Poster POST и не меняет
+  handoff. Generic `.sumup-e2e`, обычный `src/server.ts`, Telegram, OpenAI,
+  ChoiceQR и production flow не менялись. Runtime не запускался: реальные
+  recovery, SumUp/Poster requests, checkout, payment, webhook и Poster POST в
+  этой реализации не выполнялись; существующий private lifecycle не читался.
+- Integration-тесты используют temporary SQLite и fake HTTP boundary при
+  запрещённом global `fetch`. Они покрывают paid recovery exact pair,
+  duplicate после restart, disabled gate, non-PAID/missing/failed transaction,
+  provider и local mismatch, unknown lifecycle, stale/bad recovery,
+  network/HTTP/invalid response, durable no-retry, generic isolation и
+  отсутствие Poster submit во всех сценариях.
+- Проверки: точечные тесты — 24 в 1 файле прошли; `npm test` — 454 теста в
+  44 файлах прошли; `npm run typecheck`; `npm run build`; `git diff --check` —
+  успешно.
+- Result: complete — guarded local recovery boundary реализован; реальный
+  controlled recovery и Poster handoff остаются отдельными действиями.
+- Commit: текущий коммит, содержащий эту запись.
+
 ### Локальный bridge Poster-prepaid checkout → verified webhook → paid Poster handoff
 
 - Добавлены отдельные disabled-by-default команды

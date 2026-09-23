@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 import type {
@@ -18,6 +18,7 @@ export interface PosterPrepaidSandboxE2ePaths {
   directoryPath: string;
   attemptMarkerPath: string;
   verificationAttemptPath: string;
+  recoveryAttemptPath: string;
   recoveryStatePath: string;
   hostedCheckoutUrlPath: string;
   databasePath: string;
@@ -52,6 +53,7 @@ export function resolvePosterPrepaidSandboxE2ePaths(
     directoryPath,
     attemptMarkerPath: resolve(directoryPath, "attempt.json"),
     verificationAttemptPath: resolve(directoryPath, "verification-attempt.json"),
+    recoveryAttemptPath: resolve(directoryPath, "recovery-attempt.json"),
     recoveryStatePath: resolve(directoryPath, "recovery.json"),
     hostedCheckoutUrlPath: resolve(directoryPath, "hosted-checkout.json"),
     databasePath: resolve(directoryPath, "orders.sqlite"),
@@ -172,6 +174,25 @@ export function readPosterPrepaidSandboxE2eAttempt(
   };
 }
 
+export function assertPosterPrepaidSandboxVerificationAttempt(path: string): void {
+  let value: unknown;
+  try {
+    value = JSON.parse(readFileSync(path, "utf8")) as unknown;
+  } catch {
+    throw new Error("Poster prepaid verification attempt is unavailable");
+  }
+  if (
+    typeof value !== "object" ||
+    value === null ||
+    Array.isArray(value) ||
+    Object.keys(value).length !== 2 ||
+    (value as Record<string, unknown>).lifecycle !== "poster_prepaid_sandbox_e2e" ||
+    (value as Record<string, unknown>).verificationLimit !== 1
+  ) {
+    throw new Error("Poster prepaid verification attempt is invalid");
+  }
+}
+
 export class FilePosterPrepaidSandboxCheckoutLifecycle
   implements PosterPrepaidSandboxCheckoutLifecyclePort
 {
@@ -239,6 +260,7 @@ export class FilePosterPrepaidSandboxCheckoutLifecycle
     return [
       this.paths.attemptMarkerPath,
       this.paths.verificationAttemptPath,
+      this.paths.recoveryAttemptPath,
       this.paths.recoveryStatePath,
       this.paths.hostedCheckoutUrlPath,
       this.paths.databasePath,
@@ -256,6 +278,22 @@ export class FilePosterPrepaidSandboxVerificationClaim {
     writePrivateJson(this.paths.verificationAttemptPath, {
       lifecycle: "poster_prepaid_sandbox_e2e",
       verificationLimit: 1,
+    });
+  }
+}
+
+/** A separate durable claim for one controlled paid recovery. */
+export class FilePosterPrepaidSandboxRecoveryClaim {
+  constructor(private readonly paths: PosterPrepaidSandboxE2ePaths) {}
+
+  claim(): void {
+    const directory = lstatSync(this.paths.directoryPath);
+    if (!directory.isDirectory() || (directory.mode & 0o077) !== 0) {
+      throw new Error("Poster prepaid recovery directory must be private");
+    }
+    writePrivateJson(this.paths.recoveryAttemptPath, {
+      lifecycle: "poster_prepaid_sandbox_e2e",
+      recoveryLimit: 1,
     });
   }
 }

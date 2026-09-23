@@ -14,6 +14,7 @@
     "poster:check-menu": "tsx src/scripts/check-poster-menu.ts",
     "poster:sandbox:e2e:create-checkout": "tsx src/scripts/create-poster-prepaid-sandbox-e2e-checkout.ts",
     "poster:sandbox:e2e:serve-webhook": "tsx src/scripts/run-poster-prepaid-sandbox-e2e-webhook.ts",
+    "poster:sandbox:e2e:recover-paid": "tsx src/scripts/recover-poster-prepaid-sandbox-e2e-paid.ts",
     "poster:sandbox:e2e:submit-paid": "tsx src/scripts/submit-poster-prepaid-sandbox-e2e-order.ts",
     "sumup:check-access": "tsx src/scripts/check-sumup-access.ts",
     "sumup:e2e:serve": "tsx src/scripts/run-sumup-sandbox-e2e-webhook.ts",
