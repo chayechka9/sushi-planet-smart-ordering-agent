@@ -3,6 +3,52 @@
 Здесь хранится подробная техническая история завершённых изменений. README
 описывает проект и его границы, а PLAN — крупные этапы и их высокий уровень.
 
+## 23 сентября 2026
+
+### Локальный bridge Poster-prepaid checkout → verified webhook → paid Poster handoff
+
+- Добавлены отдельные disabled-by-default команды
+  `poster:sandbox:e2e:serve-webhook` и `poster:sandbox:e2e:submit-paid`.
+  Без точных флагов они завершаются до загрузки `.env`, чтения private lifecycle
+  и сетевых вызовов. Обычные generic SumUp E2E scripts и `src/server.ts`
+  не менялись.
+- Poster-prepaid recovery теперь хранит timestamp menu snapshot. Перед
+  созданием checkout проверяется его точный ISO UTC формат. Runtime bridge
+  сверяет private attempt/recovery locator с единственной парой в
+  `.poster-prepaid-e2e/orders.sqlite`: database path, order/checkout/reference,
+  merchant, amount/EUR, spot, fingerprint, timestamps, pickup item и статусы.
+  Чужая, отсутствующая или устаревшая пара останавливается до verified `paid`.
+- Отдельный webhook receiver открывает существующую Poster-prepaid SQLite только
+  после создания checkout. Он переиспользует существующие SumUp sandbox merchant
+  check, authenticated checkout/transaction verifier, webhook route и атомарное
+  SQLite reconciliation. Перед первой verification сохраняется private one-shot
+  marker; ambiguous/failed verification не повторяется автоматически. Duplicate
+  после `paid`, в том числе после restart, не вызывает verifier снова.
+- Poster handoff остаётся отдельным действием с точным подтверждением. Он
+  требует paid order/payment той же recovery-пары, текущий test account/EUR и
+  свежий совпадающий menu item, затем переиспользует существующий durable
+  paid-only handoff и sandbox submitter для того же order ID и spot ID.
+  Существующий claim блокирует второй POST после success, uncertainty или
+  restart. Poster HTTP transport теперь запрещает redirect и ограничен timeout.
+- Новые integration-тесты используют temporary SQLite, fake SumUp/Poster HTTP
+  boundaries и запрещённый global `fetch`. Они проверяют linked checkout →
+  recovery → verified `PAID`/одна `SUCCESSFUL` transaction → тот же local order
+  → один Poster handoff, duplicate/restart, one-shot failure, unknown checkout,
+  чужой order, mismatched amount/currency, stale menu, bad recovery, отсутствие
+  второго POST и изоляцию generic SumUp lifecycle. Отдельный тест проверяет
+  redirect-safe Poster transport.
+- Это только локальная реализация и synthetic verification. Runtime-команды,
+  реальный checkout, платёж, webhook delivery, SumUp/Poster requests и Poster
+  POST не запускались. Caller-provided menu timestamp в checkout CLI сам по себе
+  не доказывает происхождение snapshot; реальный связанный E2E, сохранение
+  предоплаты Poster и kitchen visibility остаются неподтверждёнными.
+- Проверки: точечные тесты — 87 в 3 файлах прошли; `npm test` — 430 тестов в
+  43 файлах прошли; `npm run typecheck`; `npm run build`; `git diff --check` —
+  успешно.
+- Result: complete — локальный one-shot bridge и отдельные future runtime
+  boundaries реализованы; внешний E2E остаётся отдельным этапом.
+- Commit: текущий коммит, содержащий эту запись.
+
 ## 22 сентября 2026
 
 ### Controlled Poster prepaid sandbox checkout runner — только код

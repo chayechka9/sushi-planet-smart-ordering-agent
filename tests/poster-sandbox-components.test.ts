@@ -114,7 +114,7 @@ describe("Poster sandbox one-shot submitter", () => {
 
   it("uses the confirmed endpoint only when the HTTP gate is explicit", async () => {
     let requestedUrl: string | URL | Request | undefined;
-    const fetcher = vi.fn(async (input: string | URL | Request) => {
+    const fetcher = vi.fn(async (input: string | URL | Request, _init?: RequestInit) => {
       requestedUrl = input;
       return Response.json({ response: { incoming_order_id: 1 } });
     });
@@ -137,6 +137,33 @@ describe("Poster sandbox one-shot submitter", () => {
     expect(requestedUrl.origin + requestedUrl.pathname).toBe(
       POSTER_CREATE_INCOMING_ORDER_ENDPOINT,
     );
+    expect(fetcher.mock.calls[0]?.[1]).toMatchObject({
+      method: "POST",
+      redirect: "manual",
+    });
+  });
+
+  it("does not follow a Poster redirect or make a second POST", async () => {
+    const fetcher = vi.fn(async (_input: string | URL | Request, _init?: RequestInit) => new Response(null, {
+      status: 302,
+      headers: { Location: "https://redirect.invalid/other" },
+    }));
+    const submitter = new InjectedPosterSandboxSubmitter(
+      new PosterSandboxHttpPostTransport({
+        token: secretToken,
+        enabled: true,
+        fetcher,
+      }),
+    );
+
+    await expect(submitter.submitOnce(createSubmission())).resolves.toMatchObject({
+      outcome: "uncertain",
+      diagnostic: { stage: "http_response", httpStatus: 302 },
+    });
+    expect(fetcher).toHaveBeenCalledOnce();
+    expect(fetcher.mock.calls[0]?.[1]).toMatchObject({ redirect: "manual" });
+    await submitter.submitOnce(createSubmission());
+    expect(fetcher).toHaveBeenCalledOnce();
   });
 
   it("sanitizes an enabled HTTP transport failure", async () => {

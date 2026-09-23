@@ -175,7 +175,7 @@ export function buildPreparedSumUpCheckout(
   input: BuildPreparedSumUpCheckoutInput,
 ): SumUpHostedCheckoutPreparation {
   assertFreshMatchingMenuSnapshot(
-    input.preparation,
+    input.preparation.item,
     input.menuSnapshot,
     input.now,
     input.maxMenuSnapshotAgeMs,
@@ -203,7 +203,7 @@ export function buildPreparedPosterPrepaidPayload(
   }
 
   assertFreshMatchingMenuSnapshot(
-    input.preparation,
+    input.preparation.item,
     input.menuSnapshot,
     input.now,
     input.maxMenuSnapshotAgeMs,
@@ -261,8 +261,8 @@ function validateItem(
   };
 }
 
-function assertFreshMatchingMenuSnapshot(
-  preparation: PosterPrepaidSandboxE2ePreparation,
+export function assertFreshMatchingMenuSnapshot(
+  item: PosterPrepaidSandboxE2eItemInput,
   snapshot: PosterPrepaidSandboxMenuSnapshot,
   now: Date,
   maxAgeMs: number,
@@ -295,14 +295,14 @@ function assertFreshMatchingMenuSnapshot(
   }
 
   const matchingProducts = snapshot.items.filter(
-    (item) => item.id.trim() === preparation.item.productId,
+    (product) => product.id.trim() === item.productId,
   );
   const product = matchingProducts[0];
   if (
     matchingProducts.length !== 1 ||
     product === undefined ||
     product.hidden ||
-    product.name.trim() !== preparation.item.name
+    product.name.trim() !== item.name
   ) {
     throw new PosterPrepaidSandboxE2ePreparationError(
       "Prepared product does not match the fresh Poster menu snapshot",
@@ -310,14 +310,14 @@ function assertFreshMatchingMenuSnapshot(
   }
 
   const matchingSpots = product.spots.filter(
-    (spot) => spot.spotId.trim() === preparation.item.spotId,
+    (spot) => spot.spotId.trim() === item.spotId,
   );
   const spot = matchingSpots[0];
   if (
     matchingSpots.length !== 1 ||
     spot === undefined ||
     !spot.visible ||
-    spot.priceCents !== preparation.item.unitPriceCents
+    spot.priceCents !== item.unitPriceCents
   ) {
     throw new PosterPrepaidSandboxE2ePreparationError(
       "Prepared spot price does not match the fresh Poster menu snapshot",

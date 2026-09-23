@@ -137,6 +137,20 @@ function createDependencies(): {
 }
 
 describe("Poster prepaid sandbox E2E checkout runner", () => {
+  it("rejects a non-canonical menu timestamp before claiming or creating checkout", async () => {
+    const { dependencies, beginAttempt, createOnce } = createDependencies();
+    const input = createInput();
+    await expect(createPosterPrepaidSandboxE2eCheckout({
+      ...input,
+      menuSnapshot: {
+        ...input.menuSnapshot,
+        capturedAt: "2026-09-22T14:29:00Z",
+      },
+    }, dependencies)).rejects.toThrow("exact ISO UTC");
+    expect(beginAttempt).not.toHaveBeenCalled();
+    expect(createOnce).not.toHaveBeenCalled();
+  });
+
   it("is disabled without confirmation and performs no fetch or file mutation", async () => {
     const workingDirectory = createWorkingDirectory();
     const paths = resolvePosterPrepaidSandboxE2ePaths(workingDirectory);

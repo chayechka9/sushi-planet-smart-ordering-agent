@@ -17,6 +17,7 @@ const DEFAULT_POSTER_PREPAID_E2E_DIRECTORY = ".poster-prepaid-e2e";
 export interface PosterPrepaidSandboxE2ePaths {
   directoryPath: string;
   attemptMarkerPath: string;
+  verificationAttemptPath: string;
   recoveryStatePath: string;
   hostedCheckoutUrlPath: string;
   databasePath: string;
@@ -30,6 +31,7 @@ export interface PosterPrepaidSandboxE2eRecoveryState {
   checkoutReference: string;
   databasePath: string;
   spotId: string;
+  menuCapturedAt: string;
   correlationId: string;
   preparationFingerprint: string;
   amountCents: number;
@@ -49,6 +51,7 @@ export function resolvePosterPrepaidSandboxE2ePaths(
   return {
     directoryPath,
     attemptMarkerPath: resolve(directoryPath, "attempt.json"),
+    verificationAttemptPath: resolve(directoryPath, "verification-attempt.json"),
     recoveryStatePath: resolve(directoryPath, "recovery.json"),
     hostedCheckoutUrlPath: resolve(directoryPath, "hosted-checkout.json"),
     databasePath: resolve(directoryPath, "orders.sqlite"),
@@ -76,6 +79,7 @@ export function readPosterPrepaidSandboxE2eRecoveryState(
     "checkoutReference",
     "databasePath",
     "spotId",
+    "menuCapturedAt",
     "correlationId",
     "preparationFingerprint",
     "amountCents",
@@ -115,6 +119,7 @@ export function readPosterPrepaidSandboxE2eRecoveryState(
     ),
     databasePath: requireString(record.databasePath, "database path"),
     spotId: requireString(record.spotId, "spot ID"),
+    menuCapturedAt: requireIsoTimestamp(record.menuCapturedAt),
     correlationId: requireString(record.correlationId, "correlation ID"),
     preparationFingerprint: requireFingerprint(record.preparationFingerprint),
     amountCents: amountCents as number,
@@ -122,6 +127,48 @@ export function readPosterPrepaidSandboxE2eRecoveryState(
     checkoutCount: 1,
     paymentAttemptLimit: 1,
     posterSubmitted: false,
+  };
+}
+
+export function readPosterPrepaidSandboxE2eAttempt(
+  path: string,
+): PosterPrepaidSandboxCheckoutAttempt {
+  let value: unknown;
+  try {
+    value = JSON.parse(readFileSync(path, "utf8")) as unknown;
+  } catch {
+    throw new Error("Poster prepaid sandbox attempt is unavailable");
+  }
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new Error("Poster prepaid sandbox attempt is invalid");
+  }
+  const record = value as Record<string, unknown>;
+  const allowedKeys = new Set([
+    "lifecycle", "orderId", "correlationId", "preparationFingerprint",
+    "amountCents", "currency", "checkoutLimit", "paymentAttemptLimit",
+    "startedAt",
+  ]);
+  if (
+    Object.keys(record).some((key) => !allowedKeys.has(key)) ||
+    record.lifecycle !== "poster_prepaid_sandbox_e2e" ||
+    record.currency !== "EUR" ||
+    record.checkoutLimit !== 1 ||
+    record.paymentAttemptLimit !== 1 ||
+    !Number.isSafeInteger(record.amountCents) ||
+    (record.amountCents as number) < 1
+  ) {
+    throw new Error("Poster prepaid sandbox attempt is invalid");
+  }
+  return {
+    lifecycle: "poster_prepaid_sandbox_e2e",
+    orderId: requireString(record.orderId, "order ID"),
+    correlationId: requireString(record.correlationId, "correlation ID"),
+    preparationFingerprint: requireFingerprint(record.preparationFingerprint),
+    amountCents: record.amountCents as number,
+    currency: "EUR",
+    checkoutLimit: 1,
+    paymentAttemptLimit: 1,
+    startedAt: requireIsoTimestamp(record.startedAt),
   };
 }
 
@@ -154,6 +201,8 @@ export class FilePosterPrepaidSandboxCheckoutLifecycle
       throw new Error("Poster prepaid sandbox checkout state is unsafe");
     }
 
+    const menuCapturedAt = requireIsoTimestamp(state.menuCapturedAt);
+
     const repository = new SqliteOrderPaymentRepository(
       this.paths.databasePath,
     );
@@ -171,6 +220,7 @@ export class FilePosterPrepaidSandboxCheckoutLifecycle
       checkoutReference: state.payment.checkoutReference,
       databasePath: this.paths.databasePath,
       spotId: state.spotId,
+      menuCapturedAt,
       correlationId: state.attempt.correlationId,
       preparationFingerprint: state.attempt.preparationFingerprint,
       amountCents: state.payment.amountCents,
@@ -188,12 +238,25 @@ export class FilePosterPrepaidSandboxCheckoutLifecycle
   private hasAnyLifecycleArtifact(): boolean {
     return [
       this.paths.attemptMarkerPath,
+      this.paths.verificationAttemptPath,
       this.paths.recoveryStatePath,
       this.paths.hostedCheckoutUrlPath,
       this.paths.databasePath,
       `${this.paths.databasePath}-shm`,
       `${this.paths.databasePath}-wal`,
     ].some((path) => existsSync(path));
+  }
+}
+
+/** Durable one-shot marker claimed before the first authenticated verification. */
+export class FilePosterPrepaidSandboxVerificationClaim {
+  constructor(private readonly paths: PosterPrepaidSandboxE2ePaths) {}
+
+  claim(): void {
+    writePrivateJson(this.paths.verificationAttemptPath, {
+      lifecycle: "poster_prepaid_sandbox_e2e",
+      verificationLimit: 1,
+    });
   }
 }
 
@@ -210,4 +273,13 @@ function requireFingerprint(value: unknown): string {
     throw new Error("Poster prepaid sandbox preparation fingerprint is invalid");
   }
   return fingerprint;
+}
+
+function requireIsoTimestamp(value: unknown): string {
+  const timestamp = requireString(value, "menu timestamp");
+  const parsed = Date.parse(timestamp);
+  if (!Number.isFinite(parsed) || new Date(parsed).toISOString() !== timestamp) {
+    throw new Error("Poster prepaid sandbox menu timestamp is invalid");
+  }
+  return timestamp;
 }

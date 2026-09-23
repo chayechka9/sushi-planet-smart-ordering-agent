@@ -51,6 +51,7 @@ export interface PosterPrepaidSandboxCreatedCheckoutState {
   order: Order;
   payment: PaymentRecord;
   spotId: string;
+  menuCapturedAt: string;
   hostedCheckoutUrl: string;
   checkoutCount: 1;
   paymentAttemptLimit: 1;
@@ -124,6 +125,16 @@ export async function createPosterPrepaidSandboxE2eCheckout(
     };
   }
 
+  const menuCapturedAtMs = Date.parse(input.menuSnapshot.capturedAt);
+  if (
+    !Number.isFinite(menuCapturedAtMs) ||
+    new Date(menuCapturedAtMs).toISOString() !== input.menuSnapshot.capturedAt
+  ) {
+    throw new PosterPrepaidSandboxCheckoutRunnerError(
+      "Poster menu snapshot timestamp must be exact ISO UTC",
+    );
+  }
+
   const preparation = preparePosterPrepaidSandboxE2e(
     { items: [input.item] },
     {
@@ -189,6 +200,7 @@ export async function createPosterPrepaidSandboxE2eCheckout(
     order: preparation.order,
     payment,
     spotId: preparation.item.spotId,
+    menuCapturedAt: input.menuSnapshot.capturedAt,
     hostedCheckoutUrl: checkout.hostedCheckoutUrl,
     checkoutCount: 1,
     paymentAttemptLimit: 1,
@@ -208,7 +220,7 @@ export async function createPosterPrepaidSandboxE2eCheckout(
   };
 }
 
-function fingerprintPreparation(input: {
+export function fingerprintPreparation(input: {
   orderId: string;
   item: PosterPrepaidSandboxE2eItemInput;
   totalCents: number;

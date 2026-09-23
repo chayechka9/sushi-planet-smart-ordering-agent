@@ -124,6 +124,8 @@ export class PosterSandboxHttpPostTransport
         method: request.method,
         headers: request.headers,
         body: request.body,
+        redirect: "manual",
+        signal: AbortSignal.timeout(20_000),
       });
     } catch {
       throw new PosterSandboxTransportError();
