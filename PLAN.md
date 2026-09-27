@@ -34,8 +34,10 @@
 2. **Безопасное меню — локально выполнено:** снимок Poster должен быть свежим;
    перед checkout состав, доступность, названия и цены корзины повторно
    сверяются с ним. Проверено без внешних запросов.
-3. **Следующий этап — контролируемый тест Telegram:** отдельно разрешить реальный
-   `/start → /menu → /add → /cart → /name → /phone → /pickup`, включая
+3. **Контролируемый тест Telegram — частично:** один разрешённый запуск
+   подтвердил ответ на `/start`, но отправка ответа на `/menu` завершилась
+   ошибкой, и процесс остановлен без повтора. После диагностики отдельно
+   проверить `/menu → /add → /cart → /name → /phone → /pickup`, включая
    duplicate и restart. Это ещё не тест оплаты.
 4. **Оплата самовывоза:** подключить существующий Telegram handler к тому же
    SQLite-backed backend flow, создать ровно один SumUp sandbox checkout через
@@ -170,8 +172,9 @@ delivery fee, payment/order status или Poster fields. Реализован л
 provider-specific OpenAI adapter и guarded runtime; один synthetic direct
 provider smoke-run исторически прошёл. Telegram adapter, polling composition,
 deterministic commands и локальный persisted `/staff`-запрос реализованы.
-Реальный Telegram runtime не проверен, checkout в его runner всё ещё заменён
-заглушкой; сотрудник не получает уведомление. Production wiring и свободная
+Реальный Telegram runtime проверен только до ответа на `/start`; ответ на
+`/menu` не доставлен. Checkout в runner всё ещё заменён заглушкой; сотрудник
+не получает уведомление. Production wiring и свободная
 языковая семантика полного заказа остаются неподтверждёнными.
 
 ### 6. Подключить первый канал
@@ -183,7 +186,8 @@ deterministic commands и локальный persisted `/staff`-запрос р�
 - отправлять подтверждение и основные статусы.
 
 Первым выбран Telegram. Его локальный handler и controlled polling runtime
-реализованы, но реальный бот ещё не проверен; hosted checkout link, verified
+реализованы; один реальный тест подтвердил `/start`, но остановился на ошибке
+отправки `/menu`. Hosted checkout link, verified
 payment/Poster result и уведомление сотруднику клиентским Telegram-потоком не
 подключены.
 

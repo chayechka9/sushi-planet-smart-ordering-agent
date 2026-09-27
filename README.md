@@ -88,8 +88,11 @@ Instagram / WhatsApp / Facebook / Telegram
   в existing polling runner она выполняет sanitised preflight Telegram config и
   disabled-by-default AI fallback config. Preflight возвращает только
   allowlisted status/diagnostic codes, без token/key или значений `.env`.
-  Telegram-команда и реальные Telegram API вызовы не запускались. Первым
-  проверяемым каналом выбран Telegram, первым типом заказа — самовывоз.
+  27 сентября один контролируемый Telegram-тест подтвердил ответ на `/start`;
+  следующий `/menu` был обработан локально, но отправка ответа завершилась
+  ошибкой. Процесс остановлен без повтора; полный заказной диалог в Telegram
+  не подтверждён. Первым проверяемым каналом выбран Telegram, первым типом
+  заказа — самовывоз.
   После добавления блюда бот спрашивает «доставка или самовывоз»; выбор
   сохраняется. Для доставки адрес и итоговая сумма подтверждаются только по
   утверждённому локальному файлу зон и тарифов, который ещё ожидается.
@@ -139,8 +142,9 @@ mock-ответами и временной SQLite проверяют компо
 Provider-neutral orchestration boundary, локальный provider-specific OpenAI
 adapter и controlled Telegram runtime composition уже реализованы; один direct
 synthetic OpenAI smoke-run исторически подтверждён. Telegram runtime entrypoint
-теперь имеет sanitised preflight, но сам не запускался. Обычный `server.ts`,
-реальный Telegram polling, channel/production validation, языковая семантика за
+имеет sanitised preflight; один реальный тест подтвердил только `/start`, а
+ответ на `/menu` не был доставлен. Обычный `server.ts`,
+полный Telegram-диалог, channel/production validation, языковая семантика за
 пределами единственного `покажи меню`, реальные клиенты, заказной сценарий,
 передача сотруднику и полноценный журнал событий ещё не подтверждены или не
 реализованы.
