@@ -42,10 +42,29 @@ export type TelegramTransportFailureCode =
   | "invalid_response"
   | "internal_failure";
 
+export interface TelegramTransportDiagnostic {
+  code: TelegramTransportFailureCode;
+  httpStatus?: number;
+}
+
 export class TelegramApiTransportError extends Error {
-  constructor(readonly code: TelegramTransportFailureCode) {
+  readonly httpStatus?: number;
+
+  constructor(
+    readonly code: TelegramTransportFailureCode,
+    httpStatus?: number,
+  ) {
     super("Telegram API request failed");
     this.name = "TelegramApiTransportError";
+    if (
+      code === "http_failure" &&
+      Number.isInteger(httpStatus) &&
+      httpStatus !== undefined &&
+      httpStatus >= 300 &&
+      httpStatus <= 599
+    ) {
+      this.httpStatus = httpStatus;
+    }
   }
 }
 
@@ -151,7 +170,7 @@ export class TelegramBotApiHttpTransport implements TelegramApiTransport {
         },
       );
       if (!response.ok) {
-        throw new TelegramApiTransportError("http_failure");
+        throw new TelegramApiTransportError("http_failure", response.status);
       }
 
       let payload: unknown;

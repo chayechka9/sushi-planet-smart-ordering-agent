@@ -6,6 +6,7 @@ import type {
   TelegramSendMessageInput,
   TelegramUpdateEnvelope,
 } from "../src/integrations/telegram/api-transport.js";
+import { TelegramApiTransportError } from "../src/integrations/telegram/api-transport.js";
 import {
   TelegramLongPollingAdapter,
   type TelegramUpdateHandler,
@@ -197,7 +198,11 @@ describe("Telegram long-polling adapter", () => {
 
     await expect(adapter.pollOnce()).resolves.toEqual({
       nextOffset: 501,
-      outcomes: [{ updateId: 500, kind: "send_failed" }],
+      outcomes: [{
+        updateId: 500,
+        kind: "send_failed",
+        diagnostic: { code: "internal_failure" },
+      }],
     });
     transport.failSend = false;
     await expect(adapter.pollOnce(501)).resolves.toEqual({
@@ -206,6 +211,54 @@ describe("Telegram long-polling adapter", () => {
     });
 
     expect(transport.sendMessage).toHaveBeenCalledOnce();
+  });
+
+  it("keeps only allowlisted transport details for a failed send", async () => {
+    const update = privateTextUpdate(550);
+    const transport = new FakeTelegramTransport([[update]]);
+    const rawSecret = "synthetic provider response with private data";
+    transport.sendMessage.mockRejectedValueOnce(
+      Object.assign(new TelegramApiTransportError("http_failure", 429), {
+        rawSecret,
+      }),
+    );
+    const adapter = new TelegramLongPollingAdapter({
+      transport,
+      updateHandler: { handle: vi.fn(async () => reply(update.updateId)) },
+    });
+
+    const result = await adapter.pollOnce();
+    expect(result.outcomes).toEqual([{
+      updateId: 550,
+      kind: "send_failed",
+      diagnostic: { code: "http_failure", httpStatus: 429 },
+    }]);
+    expect(JSON.stringify(result.outcomes)).not.toContain(rawSecret);
+    expect(transport.sendMessage).toHaveBeenCalledOnce();
+  });
+
+  it("maps a malformed transport error to a fixed internal code", async () => {
+    const update = privateTextUpdate(551);
+    const transport = new FakeTelegramTransport([[update]]);
+    const rawSecret = "private provider detail";
+    transport.sendMessage.mockRejectedValueOnce(
+      Object.assign(new TelegramApiTransportError("http_failure"), {
+        code: rawSecret,
+        httpStatus: rawSecret,
+      }),
+    );
+    const adapter = new TelegramLongPollingAdapter({
+      transport,
+      updateHandler: { handle: vi.fn(async () => reply(update.updateId)) },
+    });
+
+    const result = await adapter.pollOnce();
+    expect(result.outcomes).toEqual([{
+      updateId: 551,
+      kind: "send_failed",
+      diagnostic: { code: "internal_failure" },
+    }]);
+    expect(JSON.stringify(result.outcomes)).not.toContain(rawSecret);
   });
 
   it("does not send a result associated with a different update", async () => {

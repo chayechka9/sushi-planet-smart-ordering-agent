@@ -301,6 +301,7 @@ describe("controlled Telegram polling runner", () => {
       ignored: 0,
       processingFailed: 0,
       sendFailed: 1,
+      sendFailureDiagnostics: [{ code: "internal_failure" }],
     });
 
     const restartedTransport = new FakeTelegramTransport([privateStartUpdate()]);
@@ -327,6 +328,43 @@ describe("controlled Telegram polling runner", () => {
       processingFailed: 0,
       sendFailed: 0,
     });
+  });
+
+  it("reports only an allowlisted send diagnostic in aggregate events", async () => {
+    const rawSecret = `provider detail ${syntheticToken}`;
+    const transport = new FakeTelegramTransport([privateStartUpdate()]);
+    transport.sendMessage.mockRejectedValueOnce(
+      Object.assign(new TelegramApiTransportError("http_failure", 429), {
+        rawSecret,
+      }),
+    );
+    const controller = new AbortController();
+    const events: TelegramPollingRunnerEvent[] = [];
+
+    await runTelegramPolling({
+      argv: [TELEGRAM_POLLING_CONFIRMATION],
+      environment: enabledEnvironment(),
+      signal: controller.signal,
+      databasePath: temporaryDatabasePath(),
+      transport,
+      onEvent: (event) => {
+        events.push(event);
+        if (event.status === "batch") controller.abort();
+      },
+    });
+
+    expect(events.at(-1)).toEqual({
+      status: "batch",
+      received: 1,
+      replied: 0,
+      ignored: 0,
+      processingFailed: 0,
+      sendFailed: 1,
+      sendFailureDiagnostics: [{ code: "http_failure", httpStatus: 429 }],
+    });
+    expect(transport.sendMessage).toHaveBeenCalledOnce();
+    expect(JSON.stringify(events)).not.toContain(rawSecret);
+    expect(JSON.stringify(events)).not.toContain(syntheticToken);
   });
 
   it("renders the validated local snapshot for the deterministic menu command", async () => {

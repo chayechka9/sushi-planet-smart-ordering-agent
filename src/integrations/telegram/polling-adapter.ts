@@ -5,9 +5,11 @@ import type {
   ConversationMissingField,
   ConversationOrderView,
 } from "../../application/local-conversation-agent.js";
-import type {
-  TelegramApiTransport,
-  TelegramUpdateEnvelope,
+import {
+  TelegramApiTransportError,
+  type TelegramApiTransport,
+  type TelegramTransportDiagnostic,
+  type TelegramUpdateEnvelope,
 } from "./api-transport.js";
 import type { TelegramLocalOrderUpdateResult } from "./local-order-update-handler.js";
 import { numberAvailableTelegramMenuItems } from "./menu-numbering.js";
@@ -29,7 +31,11 @@ export type TelegramUpdateOutcome =
   | { updateId: number; kind: "replied" }
   | { updateId: number; kind: "ignored"; reason: "unsupported" | "duplicate" }
   | { updateId: number; kind: "processing_failed" }
-  | { updateId: number; kind: "send_failed" };
+  | {
+      updateId: number;
+      kind: "send_failed";
+      diagnostic: TelegramTransportDiagnostic;
+    };
 
 export interface TelegramPollResult {
   nextOffset?: number;
@@ -141,10 +147,40 @@ export class TelegramLongPollingAdapter {
         ...(signal === undefined ? {} : { signal }),
       });
       return { updateId: update.updateId, kind: "replied" };
-    } catch {
-      return { updateId: update.updateId, kind: "send_failed" };
+    } catch (error) {
+      return {
+        updateId: update.updateId,
+        kind: "send_failed",
+        diagnostic: safeSendFailureDiagnostic(error),
+      };
     }
   }
+}
+
+function safeSendFailureDiagnostic(error: unknown): TelegramTransportDiagnostic {
+  if (!(error instanceof TelegramApiTransportError)) {
+    return { code: "internal_failure" };
+  }
+  const code = error.code;
+  if (
+    code !== "timeout" &&
+    code !== "http_failure" &&
+    code !== "network_failure" &&
+    code !== "invalid_response" &&
+    code !== "internal_failure"
+  ) {
+    return { code: "internal_failure" };
+  }
+  if (
+    code === "http_failure" &&
+    Number.isSafeInteger(error.httpStatus) &&
+    error.httpStatus !== undefined &&
+    error.httpStatus >= 300 &&
+    error.httpStatus <= 599
+  ) {
+    return { code, httpStatus: error.httpStatus };
+  }
+  return { code };
 }
 
 export function telegramIdentity(message: TelegramPrivateTextMessage): {

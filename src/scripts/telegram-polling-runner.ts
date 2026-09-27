@@ -16,6 +16,7 @@ import { createOrder } from "../domain/order.js";
 import {
   TelegramApiTransportError,
   type TelegramApiTransport,
+  type TelegramTransportDiagnostic,
   type TelegramTransportFailureCode,
 } from "../integrations/telegram/api-transport.js";
 import { DeterministicTelegramInterpreter } from "../integrations/telegram/deterministic-interpreter.js";
@@ -38,6 +39,7 @@ export type TelegramPollingRunnerEvent =
       ignored: number;
       processingFailed: number;
       sendFailed: number;
+      sendFailureDiagnostics?: readonly TelegramTransportDiagnostic[];
     };
 
 export type TelegramPollingRunnerSummary =
@@ -170,6 +172,7 @@ function summarizeBatch(result: TelegramPollResult): TelegramPollingRunnerEvent 
   let ignored = 0;
   let processingFailed = 0;
   let sendFailed = 0;
+  const sendFailureDiagnostics = new Map<string, TelegramTransportDiagnostic>();
   for (const outcome of result.outcomes) {
     switch (outcome.kind) {
       case "replied":
@@ -183,6 +186,10 @@ function summarizeBatch(result: TelegramPollResult): TelegramPollingRunnerEvent 
         break;
       case "send_failed":
         sendFailed += 1;
+        sendFailureDiagnostics.set(
+          `${outcome.diagnostic.code}:${outcome.diagnostic.httpStatus ?? ""}`,
+          outcome.diagnostic,
+        );
         break;
     }
   }
@@ -193,6 +200,15 @@ function summarizeBatch(result: TelegramPollResult): TelegramPollingRunnerEvent 
     ignored,
     processingFailed,
     sendFailed,
+    ...(sendFailed === 0
+      ? {}
+      : {
+          sendFailureDiagnostics: [...sendFailureDiagnostics.values()].sort(
+            (first, second) =>
+              first.code.localeCompare(second.code) ||
+              (first.httpStatus ?? 0) - (second.httpStatus ?? 0),
+          ),
+        }),
   };
 }
 

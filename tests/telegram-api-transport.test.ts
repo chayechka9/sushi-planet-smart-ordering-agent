@@ -94,8 +94,27 @@ describe("Telegram Bot API HTTP transport", () => {
     }
 
     expect(caught).toBeInstanceOf(TelegramApiTransportError);
-    expect(caught).toMatchObject({ code: "http_failure" });
+    expect(caught).toMatchObject({ code: "http_failure", httpStatus: 401 });
     expect(String(caught)).not.toContain(syntheticToken);
+    expect(json).not.toHaveBeenCalled();
+    expect(fetcher).toHaveBeenCalledOnce();
+  });
+
+  it("keeps only the HTTP status when sending a message fails", async () => {
+    const json = vi.fn();
+    const fetcher = vi.fn<TelegramFetch>().mockResolvedValue({
+      ok: false,
+      status: 429,
+      json,
+    } as unknown as Response);
+    const transport = new TelegramBotApiHttpTransport(
+      { enabled: true, botToken: syntheticToken },
+      { fetcher },
+    );
+
+    await expect(
+      transport.sendMessage({ chatId: 101, text: "Локальный ответ" }),
+    ).rejects.toMatchObject({ code: "http_failure", httpStatus: 429 });
     expect(json).not.toHaveBeenCalled();
     expect(fetcher).toHaveBeenCalledOnce();
   });
