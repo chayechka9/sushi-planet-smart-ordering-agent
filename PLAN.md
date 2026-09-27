@@ -27,27 +27,39 @@
 не реальный аккаунт Sushi Planet. Production-доступ позже должен предоставить
 Александр или владелец аккаунта.
 
-## Актуальный roadmap
+## Актуальный roadmap — сначала Telegram и самовывоз
 
-1. **Фундамент проекта — завершён:** Fastify/TypeScript, order core, SQLite
-   order/payment, локальные SumUp/Poster components и тесты.
-2. **Единый локальный backend-flow — текущий этап:** order → checkout link →
-   webhook → server-side verification → paid → один Poster handoff на injected/
-   mock dependencies.
-3. **Sandbox E2E:** SumUp payment, webhook, `PAID`/`SUCCESSFUL`, duplicate и
-   Poster prepaid/kitchen validation.
-4. **AI-агент:** меню, выбор блюд, корзина, pickup/delivery, адрес/телефон,
-   ссылка на оплату, статусы и handoff сотруднику.
-5. **Один тестовый социальный канал.**
-6. **Production preflight** с ограниченным доступом владельца Sushi Planet.
-7. **Контролируемый пилот.**
-8. **Остальные социальные каналы и production operations.**
+1. **Локальная основа — выполнено:** order core, SQLite, isolated SumUp/Poster
+   boundaries, Telegram commands/polling composition и synthetic tests.
+2. **Безопасное меню — локально выполнено:** снимок Poster должен быть свежим;
+   перед checkout состав, доступность, названия и цены корзины повторно
+   сверяются с ним. Проверено без внешних запросов.
+3. **Следующий этап — контролируемый тест Telegram:** отдельно разрешить реальный
+   `/start → /menu → /add → /cart → /name → /phone → /pickup`, включая
+   duplicate и restart. Это ещё не тест оплаты.
+4. **Оплата самовывоза:** подключить существующий Telegram handler к тому же
+   SQLite-backed backend flow, создать ровно один SumUp sandbox checkout через
+   отдельный runtime gate и вернуть клиенту только сохранённую hosted-ссылку.
+   Само создание checkout требует отдельного разрешения непосредственно перед
+   внешним действием.
+5. **Подтверждение и Poster:** webhook → authenticated `PAID`/`SUCCESSFUL` →
+   тот же order ID → durable one-shot Poster handoff → безопасный статус клиенту.
+   Проверить связанный сценарий в sandbox и отдельно подтвердить поля,
+   предоплату и видимость заказа у кухни. Повтор уже отправленного заказа не
+   является способом проверки.
+6. **Работа сотрудников и ошибки:** доставить сохранённый `/staff`-запрос
+   сотруднику, определить повторную отправку сообщений, обработку неуспешной
+   оплаты и журнал ключевых событий.
+7. **Production preflight и ограниченный пилот:** получить доступ владельца к
+   реальному Poster, согласовать меню и операционные правила, затем вручную
+   контролировать первые реальные заказы. Доставка добавляется после
+   утверждения тарифов; остальные каналы — после Telegram.
 
-Production-доступ Александра нужен после успешного sandbox и до подключения
-реального AI-агента. Реальные аккаунты и production actions требуют отдельной
-настройки, проверки доступа и явного разрешения; они не включаются простой
-подменой API-ключей. ChoiceQR и существующий сайт остаются вне основной
-архитектуры. Проект пока не готов к пилоту.
+Telegram выбран первым каналом, самовывоз — первым типом заказа. AI остаётся
+опциональным для первого теста: deterministic-команд достаточно. Реальные
+аккаунты и production actions требуют отдельной настройки, проверки доступа и
+явного разрешения; они не включаются простой подменой API-ключей. ChoiceQR и
+существующий сайт остаются вне основной архитектуры. Проект не готов к пилоту.
 
 ## Этапы работы
 
@@ -121,12 +133,15 @@ SumUp sandbox-доступ исторически подтверждён. В к�
 builder/client, HTTP-verifier, локальный webhook-flow и отдельные E2E/recovery-
 инструменты. Unit/mock-тесты не заменяют внешнюю проверку этих компонентов.
 
-Последняя описанная E2E-попытка закончилась без зарегистрированного webhook:
-сообщение пользователя о завершении Test mode не подтверждено серверным чтением
-checkout/transaction, локальные order/payment остались неоплаченными. Причина
-отсутствия webhook неизвестна. Временные данные той попытки удалены; её recovery
-не подтверждён и новым кодом не восстанавливается. Recovery-команда только
-проверяет существующие данные, не переводя локальный заказ в `paid`.
+Более ранняя E2E-попытка закончилась без зарегистрированного webhook; её
+причина остаётся неизвестной. Позднее, 22 сентября, отдельный контролируемый
+SumUp sandbox flow подтвердил доставку webhook, server-side `PAID`/одну
+`SUCCESSFUL` transaction, локальный `paid` и безопасный duplicate. 23 сентября
+отдельный Poster-prepaid checkout прошёл guarded paid recovery и один Poster
+sandbox handoff; локальная пара сохранилась как `paid`/`submitted_to_poster`.
+Read-only Poster lookup нашёл строку заказа, но не доказал поля предоплаты и
+видимость у кухни. Это изолированные тестовые сценарии, а не работающий
+Telegram-заказ.
 
 Остаются ограничения: настоящий verifier принимает только `PAID`; остальные
 статусы завершаются ошибкой, хотя локальный сервис поддерживает non-paid
@@ -151,10 +166,12 @@ provider-neutral AI orchestration boundary: injected interpreter получае�
 ограниченный контекст и может вернуть только существующую команду или
 безопасное уточнение; runtime allowlist не принимает цены, суммы, availability,
 delivery fee, payment/order status или Poster fields. Реализован локальный
-provider-specific OpenAI adapter и его конфигурационная boundary через
-injected transport; API keys и network requests не подключены. Свободная
-языковая семантика, production wiring, handoff сотруднику и transport adapters
-каналов ещё не подключены.
+provider-specific OpenAI adapter и guarded runtime; один synthetic direct
+provider smoke-run исторически прошёл. Telegram adapter, polling composition,
+deterministic commands и локальный persisted `/staff`-запрос реализованы.
+Реальный Telegram runtime не проверен, checkout в его runner всё ещё заменён
+заглушкой; сотрудник не получает уведомление. Production wiring и свободная
+языковая семантика полного заказа остаются неподтверждёнными.
 
 ### 6. Подключить первый канал
 
@@ -163,6 +180,11 @@ injected transport; API keys и network requests не подключены. Св
 - связать пользователя канала с заказом;
 - отправлять клиенту ссылку на оплату;
 - отправлять подтверждение и основные статусы.
+
+Первым выбран Telegram. Его локальный handler и controlled polling runtime
+реализованы, но реальный бот ещё не проверен; hosted checkout link, verified
+payment/Poster result и уведомление сотруднику клиентским Telegram-потоком не
+подключены.
 
 ### 7. Провести внутреннее тестирование
 

@@ -88,8 +88,12 @@ Instagram / WhatsApp / Facebook / Telegram
   в existing polling runner она выполняет sanitised preflight Telegram config и
   disabled-by-default AI fallback config. Preflight возвращает только
   allowlisted status/diagnostic codes, без token/key или значений `.env`.
-  Команда и реальные Telegram/OpenAI вызовы в рамках этой реализации не
-  запускались.
+  Telegram-команда и реальные Telegram API вызовы не запускались. Первым
+  проверяемым каналом выбран Telegram, первым типом заказа — самовывоз.
+  Локальный снимок меню доступен только 30 минут; перед
+  подготовкой checkout корзина заново сверяется с меню по ID, доступности,
+  названию и цене. В текущем Telegram runner checkout всё ещё отключён,
+  поэтому бот не выдаёт реальную ссылку на оплату.
 
 Обычный `server.ts` запускает только приложение с health route: он не включает
 SQLite, checkout/verifier, webhook, Telegram polling или AI layer автоматически.
@@ -108,6 +112,11 @@ mock-ответами и временной SQLite проверяют компо
   100-cent SumUp sandbox flow: реальный webhook, server-side verification,
   checkout `PAID`, ровно одна `SUCCESSFUL` transaction, atomic local `paid` и
   duplicate replay без повторной верификации или изменения состояния.
+- В отдельном controlled Poster-prepaid sandbox сценарии 23 сентября один
+  checkout был серверно восстановлен как оплаченный, после чего один заказ
+  отправлен в тестовый Poster. Локальные состояния — `paid` и
+  `submitted_to_poster`; read-only lookup нашёл строку заказа. Точное
+  сохранение предоплаты и видимость у кухни не подтверждены.
 - Один controlled direct OpenAI smoke-run через отдельный CLI обработал только
   synthetic сообщение `покажи меню`: safe summary сообщил `success`, команду
   `show_menu`, выполненную provider attempt и exit code `0`. Git state после

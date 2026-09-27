@@ -3,7 +3,60 @@
 Здесь хранится подробная техническая история завершённых изменений. README
 описывает проект и его границы, а PLAN — крупные этапы и их высокий уровень.
 
+## 27 сентября 2026
+
+### Telegram-first план и проверка свежести меню перед checkout
+
+- В PLAN выбран первый канал Telegram и первый тип заказа — самовывоз.
+  Зафиксирована последовательность: controlled channel test, соединение с
+  SumUp sandbox checkout, verified webhook и handoff того же заказа в Poster,
+  проверка полей/кухни, работа сотрудника и только затем ограниченный пилот.
+  README синхронизирован с этим направлением и историческим результатом
+  controlled Poster-prepaid sandbox сценария 23 сентября. Содержимое private
+  lifecycle и customer data в документацию не переносилось.
+- `ValidatedLocalMenuSnapshotProvider` теперь возвращает пустое меню для
+  снимка старше 30 минут или с timestamp в будущем. Формат и размеры файла
+  по-прежнему проверяются; обновление меню не запускается автоматически.
+- Перед новым checkout `LocalConversationAgentService` заново читает текущий
+  snapshot и требует точного совпадения каждого товара корзины по ID,
+  доступности, названию и цене. Пустой/устаревший snapshot, удалённый,
+  недоступный или изменившийся товар останавливают checkout до provider call;
+  order остаётся `draft`, а checkout identity не сохраняется.
+- Synthetic tests проверяют обе границы 30-минутного окна, будущий timestamp,
+  ответ Telegram при просроченном меню и все перечисленные mismatch-случаи
+  без checkout creation. Реальные Telegram polling/API, Poster refresh,
+  SumUp checkout/payment, webhook, Poster POST и production не запускались.
+  `.env`, private E2E state и реальные customer data не менялись.
+- Проверки: 55 точечных тестов в 4 файлах; `npm test` — 461 тест в 44 файлах;
+  `npm run typecheck`; `npm run build`; `git diff --check` — успешно.
+- Result: complete — локальный Telegram checkout не может использовать
+  просроченный snapshot или изменившуюся корзину. Обновление фактического меню,
+  запуск Telegram и подключение реального sandbox checkout остаются следующими
+  отдельными шагами.
+- Commit: текущий коммит, содержащий эту запись.
+
 ## 23 сентября 2026
+
+### Результат controlled Poster-prepaid sandbox handoff (записан 27 сентября)
+
+- После отдельного разрешения existing guarded recovery был выполнен один раз:
+  checkout GET — `1`, transaction GET — `1`, Poster POST — `0`, retry — `false`.
+  Локальная order/payment пара перешла в `paid` после server-side verification.
+- Отдельно разрешённый handoff выполнил account GET — `1`, menu GET — `1`,
+  Poster POST — `1`, без retry. Команда вернула `submitted`; локальные order,
+  payment и handoff сохранились как `submitted_to_poster`, `paid`, `submitted`.
+  Эти статусы повторно подтверждены read-only проверкой локальной SQLite
+  27 сентября; актуальное состояние внешнего Poster тогда не перечитывалось.
+- Один последующий read-only `incomingOrders.getOwnIncomingOrders` нашёл
+  связанную строку. Строгий decoder не подтвердил status, spot, product,
+  quantity, price, сохранение предоплаты и видимость у кухни. Повторный POST
+  или дополнительный lookup для этого исхода не выполнялись.
+- Эта ретроспективная запись не расширяет результат локальных code-only
+  изменений ниже и не доказывает полный Telegram → SumUp → Poster flow.
+  Private identifiers, credentials, raw responses и customer data не включены.
+- Result: partial — guarded recovery и один Poster submit состоялись;
+  field-level и kitchen evidence остаются неподтверждёнными.
+- Commit: документационный результат зафиксирован в коммите от 27 сентября.
 
 ### Controlled Poster-prepaid paid recovery — только локальный код
 

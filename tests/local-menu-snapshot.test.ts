@@ -13,6 +13,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import type { MenuItemSnapshot } from "../src/domain/order.js";
 import {
+  MAX_TELEGRAM_MENU_SNAPSHOT_AGE_MS,
   ValidatedLocalMenuSnapshotProvider,
   writeLocalMenuSnapshotAtomically,
 } from "../src/menu/local-menu-snapshot.js";
@@ -70,13 +71,33 @@ describe("ValidatedLocalMenuSnapshotProvider", () => {
     );
 
     expect(
-      new ValidatedLocalMenuSnapshotProvider(snapshotPath).getMenuSnapshot(),
+      new ValidatedLocalMenuSnapshotProvider(
+        snapshotPath,
+        () => new Date("2026-09-14T12:00:00.000Z"),
+      ).getMenuSnapshot(),
     ).toEqual(syntheticMenu);
     expect(JSON.parse(readFileSync(snapshotPath, "utf8"))).toEqual({
       schemaVersion: 1,
       capturedAt: "2026-09-14T12:00:00.000Z",
       items: syntheticMenu,
     });
+  });
+
+  it("uses a snapshot only within its 30-minute freshness window", () => {
+    const snapshotPath = temporarySnapshotPath();
+    const capturedAt = new Date("2026-09-14T12:00:00.000Z");
+    writeLocalMenuSnapshotAtomically(snapshotPath, syntheticMenu, capturedAt);
+
+    const at = (offsetMs: number) =>
+      new ValidatedLocalMenuSnapshotProvider(
+        snapshotPath,
+        () => new Date(capturedAt.getTime() + offsetMs),
+      ).getMenuSnapshot();
+
+    expect(at(0)).toEqual(syntheticMenu);
+    expect(at(MAX_TELEGRAM_MENU_SNAPSHOT_AGE_MS)).toEqual(syntheticMenu);
+    expect(at(MAX_TELEGRAM_MENU_SNAPSHOT_AGE_MS + 1)).toEqual([]);
+    expect(at(-1)).toEqual([]);
   });
 
   it("rejects extra fields instead of retaining raw provider data", () => {

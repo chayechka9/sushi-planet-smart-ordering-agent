@@ -386,6 +386,48 @@ describe("local transport-neutral conversation agent", () => {
     );
   });
 
+  it.each([
+    { label: "missing fresh menu", snapshot: [], code: "menu_unavailable" },
+    {
+      label: "removed item",
+      snapshot: [menu[1]!],
+      code: "menu_item_unavailable",
+    },
+    {
+      label: "unavailable item",
+      snapshot: [{ ...menu[0]!, available: false }],
+      code: "menu_item_unavailable",
+    },
+    {
+      label: "changed price",
+      snapshot: [{ ...menu[0]!, unitPriceCents: 1_300 }],
+      code: "menu_item_unavailable",
+    },
+    {
+      label: "changed name",
+      snapshot: [{ ...menu[0]!, name: "Renamed Synthetic Roll" }],
+      code: "menu_item_unavailable",
+    },
+  ])("blocks checkout when the $label no longer matches the cart", async ({
+    snapshot,
+    code,
+  }) => {
+    const harness = createHarness();
+    await makePickupOrderReady(harness);
+    harness.getMenuSnapshot.mockReturnValue(snapshot);
+
+    await expect(
+      send(harness, "checkout-after-menu-change", { type: "prepare_checkout" }),
+    ).rejects.toMatchObject({ code });
+
+    expect(harness.prepareCheckoutLink).not.toHaveBeenCalled();
+    expect(harness.stateStore.findByConversationId(conversationId)).toMatchObject(
+      { order: { status: "draft" } },
+    );
+    expect(harness.stateStore.findByConversationId(conversationId))
+      .not.toHaveProperty("checkout");
+  });
+
   it("never treats a customer payment report as verified or calls the webhook/Poster flow", async () => {
     const harness = createHarness();
     await makePickupOrderReady(harness);

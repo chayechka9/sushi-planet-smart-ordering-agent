@@ -16,6 +16,7 @@ import type { MenuItemSnapshot } from "../domain/order.js";
 
 const SNAPSHOT_SCHEMA_VERSION = 1;
 const MAX_SNAPSHOT_BYTES = 1_000_000;
+export const MAX_TELEGRAM_MENU_SNAPSHOT_AGE_MS = 30 * 60 * 1_000;
 
 export const LOCAL_MENU_SNAPSHOT_FILENAME = ".telegram-menu-snapshot.json";
 
@@ -36,13 +37,25 @@ export function defaultLocalMenuSnapshotPath(): string {
 export class ValidatedLocalMenuSnapshotProvider
   implements LocalConversationMenuProvider
 {
-  constructor(private readonly snapshotPath: string) {}
+  constructor(
+    private readonly snapshotPath: string,
+    private readonly now: () => Date = () => new Date(),
+  ) {}
 
   getMenuSnapshot(): readonly MenuItemSnapshot[] {
     try {
       const raw = readFileSync(this.snapshotPath);
       if (raw.byteLength === 0 || raw.byteLength > MAX_SNAPSHOT_BYTES) return [];
-      return parseLocalMenuSnapshot(raw.toString("utf8")).items;
+      const snapshot = parseLocalMenuSnapshot(raw.toString("utf8"));
+      const ageMs = this.now().getTime() - Date.parse(snapshot.capturedAt);
+      if (
+        !Number.isFinite(ageMs) ||
+        ageMs < 0 ||
+        ageMs > MAX_TELEGRAM_MENU_SNAPSHOT_AGE_MS
+      ) {
+        return [];
+      }
+      return snapshot.items;
     } catch {
       return [];
     }

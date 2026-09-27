@@ -861,6 +861,43 @@ describe("controlled Telegram polling runner", () => {
     });
   });
 
+  it("does not show an expired local menu to a Telegram customer", async () => {
+    const databasePath = temporaryDatabasePath();
+    const menuSnapshotPath = join(databasePath, "..", "expired-menu.json");
+    writeLocalMenuSnapshotAtomically(
+      menuSnapshotPath,
+      [
+        {
+          id: "synthetic-expired-item",
+          name: "Synthetic Expired Item",
+          unitPriceCents: 123,
+          available: true,
+        },
+      ],
+      new Date("2026-01-01T00:00:00.000Z"),
+    );
+    const transport = new FakeTelegramTransport([privateMenuUpdate()]);
+    const controller = new AbortController();
+
+    await runTelegramPolling({
+      argv: [TELEGRAM_POLLING_CONFIRMATION],
+      environment: enabledEnvironment(),
+      signal: controller.signal,
+      databasePath,
+      menuSnapshotPath,
+      transport,
+      onEvent: (event) => {
+        if (event.status === "batch") controller.abort();
+      },
+    });
+
+    expect(transport.sendMessage).toHaveBeenCalledWith({
+      chatId: 502,
+      text: "Меню сейчас недоступно.",
+      signal: controller.signal,
+    });
+  });
+
   it.each([
     "timeout",
     "http_failure",

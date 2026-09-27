@@ -154,7 +154,10 @@ describe("controlled Telegram menu snapshot refresh", () => {
       "/api/menu.getProducts",
     ]);
     expect(
-      new ValidatedLocalMenuSnapshotProvider(snapshotPath).getMenuSnapshot(),
+      new ValidatedLocalMenuSnapshotProvider(
+        snapshotPath,
+        () => new Date("2026-09-14T12:00:00.000Z"),
+      ).getMenuSnapshot(),
     ).toEqual([
       {
         id: "synthetic-fixture-item",

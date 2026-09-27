@@ -578,6 +578,24 @@ export class LocalConversationAgentService {
       };
     }
 
+    const currentMenu = this.readMenu();
+    if (currentMenu.length === 0) {
+      throw new ConversationAgentError("menu_unavailable");
+    }
+    for (const item of state.order.items) {
+      const currentItem = currentMenu.find(
+        (candidate) => candidate.id === item.menuItemId,
+      );
+      if (
+        currentItem === undefined ||
+        !currentItem.available ||
+        currentItem.name !== item.name ||
+        currentItem.unitPriceCents !== item.unitPriceCents
+      ) {
+        throw new ConversationAgentError("menu_item_unavailable");
+      }
+    }
+
     const order = applyOrderChange(() =>
       markAwaitingPayment(state.order, this.now()),
     );
