@@ -34,11 +34,11 @@
 2. **Безопасное меню — локально выполнено:** снимок Poster должен быть свежим;
    перед checkout состав, доступность, названия и цены корзины повторно
    сверяются с ним. Проверено без внешних запросов.
-3. **Контролируемый тест Telegram — частично:** один разрешённый запуск
-   подтвердил ответ на `/start`, но отправка ответа на `/menu` завершилась
-   ошибкой, и процесс остановлен без повтора. После диагностики отдельно
-   проверить `/menu → /add → /cart → /name → /phone → /pickup`, включая
-   duplicate и restart. Это ещё не тест оплаты.
+3. **Контролируемый тест Telegram — частично:** отдельные разрешённые запуски
+   подтвердили ответы на `/start` и `/menu`; прежний send failure для `/menu`
+   остался без установленной причины. Далее проверить
+   `/add → /cart → /name → /phone → /pickup`, включая duplicate и restart.
+   Это ещё не тест оплаты.
 4. **Оплата самовывоза:** подключить существующий Telegram handler к тому же
    SQLite-backed backend flow, создать ровно один SumUp sandbox checkout через
    отдельный runtime gate и вернуть клиенту только сохранённую hosted-ссылку.
@@ -172,9 +172,9 @@ delivery fee, payment/order status или Poster fields. Реализован л
 provider-specific OpenAI adapter и guarded runtime; один synthetic direct
 provider smoke-run исторически прошёл. Telegram adapter, polling composition,
 deterministic commands и локальный persisted `/staff`-запрос реализованы.
-Реальный Telegram runtime проверен только до ответа на `/start`; ответ на
-`/menu` не доставлен. Checkout в runner всё ещё заменён заглушкой; сотрудник
-не получает уведомление. Production wiring и свободная
+Реальный Telegram runtime проверен до ответов на `/start` и `/menu`; полный
+диалог заказа ещё не проверен. Checkout в runner всё ещё заменён заглушкой;
+сотрудник не получает уведомление. Production wiring и свободная
 языковая семантика полного заказа остаются неподтверждёнными.
 
 ### 6. Подключить первый канал
