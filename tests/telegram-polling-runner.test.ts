@@ -689,6 +689,16 @@ describe("controlled Telegram polling runner", () => {
       },
     });
 
+    expect(transport.sendMessage).toHaveBeenNthCalledWith(2, {
+      chatId: 502,
+      text: "Корзина:\n1. Synthetic Fixture Alpha × 1 — €1.23\nПолучение: самовывоз\nИтого: €1.23\nУбрать: /remove <номер> [количество]\nКак к вам обращаться? Укажите имя: /name <имя>.",
+      signal: controller.signal,
+    });
+    expect(transport.sendMessage).toHaveBeenNthCalledWith(3, {
+      chatId: 502,
+      text: "Имя сохранено.\nЗаказ:\n1. Synthetic Fixture Alpha × 1 — €1.23\nПолучение: самовывоз\nИтого: €1.23\nНужно указать: телефон.\nУкажите телефон для заказа: /phone <телефон>.",
+      signal: controller.signal,
+    });
     expect(transport.sendMessage).toHaveBeenNthCalledWith(5, {
       chatId: 502,
       text: "Проверьте заказ:\n1. Synthetic Fixture Alpha × 1 — €1.23\nПолучение: самовывоз\nИтого: €1.23\nОбязательные данные заполнены.\nЗаказ готов к переходу к оплате. Checkout не создан.",

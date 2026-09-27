@@ -34,11 +34,11 @@
 2. **Безопасное меню — локально выполнено:** снимок Poster должен быть свежим;
    перед checkout состав, доступность, названия и цены корзины повторно
    сверяются с ним. Проверено без внешних запросов.
-3. **Контролируемый тест Telegram — частично:** отдельные разрешённые запуски
-   подтвердили ответы на `/start` и `/menu`; прежний send failure для `/menu`
-   остался без установленной причины. Далее проверить
-   `/add → /cart → /name → /phone → /pickup`, включая duplicate и restart.
-   Это ещё не тест оплаты.
+3. **Контролируемый тест Telegram — частично:** тестовый чат подтвердил
+   `/start`, `/menu`, `/add`, `/cart`, самовывоз, имя, телефон и `/review`.
+   Состояние сохранилось после restart; duplicate пока проверен только
+   локальными тестами. Прежний send failure для `/menu` остался без
+   установленной причины. Checkout и оплата не проверялись.
 4. **Оплата самовывоза:** подключить существующий Telegram handler к тому же
    SQLite-backed backend flow, создать ровно один SumUp sandbox checkout через
    отдельный runtime gate и вернуть клиенту только сохранённую hosted-ссылку.
@@ -172,8 +172,9 @@ delivery fee, payment/order status или Poster fields. Реализован л
 provider-specific OpenAI adapter и guarded runtime; один synthetic direct
 provider smoke-run исторически прошёл. Telegram adapter, polling composition,
 deterministic commands и локальный persisted `/staff`-запрос реализованы.
-Реальный Telegram runtime проверен до ответов на `/start` и `/menu`; полный
-диалог заказа ещё не проверен. Checkout в runner всё ещё заменён заглушкой;
+Реальный Telegram runtime проверен до заполненного тестового самовывоза и
+обзора заказа после restart. Это продолженный черновик, а не новый сквозной
+заказ. Checkout в runner всё ещё заменён заглушкой;
 сотрудник не получает уведомление. Production wiring и свободная
 языковая семантика полного заказа остаются неподтверждёнными.
 
@@ -186,8 +187,8 @@ deterministic commands и локальный persisted `/staff`-запрос р�
 - отправлять подтверждение и основные статусы.
 
 Первым выбран Telegram. Его локальный handler и controlled polling runtime
-реализованы; один реальный тест подтвердил `/start`, но остановился на ошибке
-отправки `/menu`. Hosted checkout link, verified
+реализованы; тестовый диалог проверен до готовности самовывоза к оплате.
+Hosted checkout link, verified
 payment/Poster result и уведомление сотруднику клиентским Telegram-потоком не
 подключены.
 

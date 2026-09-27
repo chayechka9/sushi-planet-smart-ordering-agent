@@ -344,6 +344,12 @@ function renderNextQuestion(order: ConversationOrderView): string {
   ) {
     return "\nУкажите адрес для проверки доставки: /address <улица> | <город> | <индекс>.";
   }
+  if (order.missingFields.includes("first_name")) {
+    return "\nКак к вам обращаться? Укажите имя: /name <имя>.";
+  }
+  if (order.missingFields.includes("phone")) {
+    return "\nУкажите телефон для заказа: /phone <телефон>.";
+  }
   return "";
 }
 
