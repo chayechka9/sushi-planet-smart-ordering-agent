@@ -265,6 +265,51 @@ describe("controlled Telegram local order update handler", () => {
     expect(harness.prepareCheckoutLink).not.toHaveBeenCalled();
   });
 
+  it("asks for fulfilment after adding an item and accepts the customer's choice", async () => {
+    const harness = createHarness();
+
+    const added = await harness.handler.handle(commandUpdate(1, "/add 1"));
+    expect(added).toMatchObject({
+      kind: "reply",
+      text: expect.stringContaining(
+        "Как вы хотите получить заказ: доставка или самовывоз?",
+      ),
+      nextStep: {
+        kind: "collecting_order",
+        missingFields: ["fulfilment", "first_name", "phone"],
+      },
+    });
+
+    const delivery = await harness.handler.handle(commandUpdate(2, "доставка"));
+    expect(delivery).toMatchObject({
+      kind: "reply",
+      text: expect.stringContaining("Укажите адрес для проверки доставки"),
+      nextStep: {
+        kind: "collecting_order",
+        missingFields: ["first_name", "phone", "address"],
+      },
+    });
+    expect(harness.conversationAgent.inspect(conversationId)).toMatchObject({
+      fulfilment: "delivery",
+      missingFields: ["first_name", "phone", "address"],
+      totalIsFinal: false,
+    });
+
+    const pickup = await harness.handler.handle(commandUpdate(3, "самовывоз"));
+    expect(pickup).toMatchObject({
+      kind: "reply",
+      nextStep: {
+        kind: "collecting_order",
+        missingFields: ["first_name", "phone"],
+      },
+    });
+    expect(harness.conversationAgent.inspect(conversationId)).toMatchObject({
+      fulfilment: "pickup",
+      missingFields: ["first_name", "phone"],
+    });
+    expect(harness.prepareCheckoutLink).not.toHaveBeenCalled();
+  });
+
   it("suppresses a repeated processed update without changing the cart", async () => {
     const harness = createHarness();
     const update = commandUpdate(1, "/add 1");
@@ -308,7 +353,7 @@ describe("controlled Telegram local order update handler", () => {
       updateId: 1_005,
       kind: "reply",
       chatId: 501,
-      text: "Доставка в эту зону пока недоступна.",
+      text: "Не удалось рассчитать доставку по этому адресу. Адрес и стоимость не изменены. Проверьте заказ: /review. Можно выбрать самовывоз: /pickup.",
       nextStep: { kind: "collecting_order", missingFields: ["address"] },
     });
     expect(harness.stateStore.findByConversationId(conversationId)).toEqual(

@@ -250,7 +250,7 @@ describe("controlled Telegram polling runner", () => {
     expect(transport.getUpdates).toHaveBeenCalledOnce();
     expect(transport.sendMessage).toHaveBeenCalledWith({
       chatId: 501,
-      text: "Корзина:\nКорзина пуста.\nПолучение: не выбрано\nИтого: €0.00\nУбрать: /remove <номер> [количество]",
+      text: "Корзина:\nКорзина пуста.\nПолучение: не выбрано\nСумма блюд: €0.00\nУбрать: /remove <номер> [количество]",
       signal: controller.signal,
     });
 
@@ -406,7 +406,7 @@ describe("controlled Telegram polling runner", () => {
       signal: controller.signal,
     });
     const expectedCart =
-      "Корзина:\n1. Synthetic Fixture Beta × 3 — €7.50\nПолучение: не выбрано\nИтого: €7.50\nУбрать: /remove <номер> [количество]";
+      "Корзина:\n1. Synthetic Fixture Beta × 3 — €7.50\nПолучение: не выбрано\nСумма блюд: €7.50\nУбрать: /remove <номер> [количество]\nКак вы хотите получить заказ: доставка или самовывоз? Ответьте «доставка» или «самовывоз» (также можно /delivery или /pickup).";
     expect(transport.sendMessage).toHaveBeenNthCalledWith(2, {
       chatId: 502,
       text: expectedCart,
@@ -460,7 +460,7 @@ describe("controlled Telegram polling runner", () => {
     });
     expect(transport.sendMessage).toHaveBeenNthCalledWith(6, {
       chatId: 502,
-      text: "Корзина:\nКорзина пуста.\nПолучение: не выбрано\nИтого: €0.00\nУбрать: /remove <номер> [количество]",
+      text: "Корзина:\nКорзина пуста.\nПолучение: не выбрано\nСумма блюд: €0.00\nУбрать: /remove <номер> [количество]",
       signal: controller.signal,
     });
   });
@@ -492,7 +492,7 @@ describe("controlled Telegram polling runner", () => {
     });
     expect(transport.sendMessage).toHaveBeenNthCalledWith(2, {
       chatId: 502,
-      text: "Корзина:\nКорзина пуста.\nПолучение: не выбрано\nИтого: €0.00\nУбрать: /remove <номер> [количество]",
+      text: "Корзина:\nКорзина пуста.\nПолучение: не выбрано\nСумма блюд: €0.00\nУбрать: /remove <номер> [количество]",
       signal: controller.signal,
     });
   });
@@ -562,7 +562,7 @@ describe("controlled Telegram polling runner", () => {
     expect(restartedTransport.sendMessage).toHaveBeenCalledOnce();
     expect(restartedTransport.sendMessage).toHaveBeenCalledWith({
       chatId: 502,
-      text: "Корзина:\n1. Synthetic Fixture Alpha × 2 — €2.46\nПолучение: не выбрано\nИтого: €2.46\nУбрать: /remove <номер> [количество]",
+      text: "Корзина:\n1. Synthetic Fixture Alpha × 2 — €2.46\nПолучение: не выбрано\nСумма блюд: €2.46\nУбрать: /remove <номер> [количество]\nКак вы хотите получить заказ: доставка или самовывоз? Ответьте «доставка» или «самовывоз» (также можно /delivery или /pickup).",
       signal: restartedController.signal,
     });
   });
@@ -609,12 +609,12 @@ describe("controlled Telegram polling runner", () => {
     });
     expect(transport.sendMessage).toHaveBeenNthCalledWith(3, {
       chatId: 502,
-      text: "Корзина:\n1. Synthetic Fixture Alpha × 2 — €2.46\nПолучение: не выбрано\nИтого: €2.46\nУбрать: /remove <номер> [количество]",
+      text: "Корзина:\n1. Synthetic Fixture Alpha × 2 — €2.46\nПолучение: не выбрано\nСумма блюд: €2.46\nУбрать: /remove <номер> [количество]\nКак вы хотите получить заказ: доставка или самовывоз? Ответьте «доставка» или «самовывоз» (также можно /delivery или /pickup).",
       signal: controller.signal,
     });
     expect(transport.sendMessage).toHaveBeenNthCalledWith(5, {
       chatId: 502,
-      text: "Корзина:\nКорзина пуста.\nПолучение: не выбрано\nИтого: €0.00\nУбрать: /remove <номер> [количество]",
+      text: "Корзина:\nКорзина пуста.\nПолучение: не выбрано\nСумма блюд: €0.00\nУбрать: /remove <номер> [количество]",
       signal: controller.signal,
     });
   });
@@ -775,12 +775,12 @@ describe("controlled Telegram polling runner", () => {
 
     expect(transport.sendMessage).toHaveBeenNthCalledWith(2, {
       chatId: 502,
-      text: "Доставка в эту зону пока недоступна.",
+      text: "Не удалось рассчитать доставку по этому адресу. Адрес и стоимость не изменены. Проверьте заказ: /review. Можно выбрать самовывоз: /pickup.",
       signal: controller.signal,
     });
     expect(transport.sendMessage).toHaveBeenNthCalledWith(3, {
       chatId: 502,
-      text: "Проверьте заказ:\nКорзина пуста.\nПолучение: доставка\nИтого: €0.00\nНужно указать: блюда, имя, телефон, адрес.",
+      text: "Проверьте заказ:\nКорзина пуста.\nПолучение: доставка\nСумма блюд без доставки: €0.00\nНужно указать: блюда, имя, телефон, адрес.",
       signal: controller.signal,
     });
     const store = new SqliteConversationStateStore(databasePath, {
@@ -832,7 +832,7 @@ describe("controlled Telegram polling runner", () => {
 
     expect(transport.sendMessage).toHaveBeenNthCalledWith(10, {
       chatId: 502,
-      text: "Проверьте заказ:\n1. Synthetic Fixture Alpha × 2 — €2.46\nПолучение: доставка\nИтого: €2.46\nНужно указать: имя, телефон, адрес.",
+      text: "Проверьте заказ:\n1. Synthetic Fixture Alpha × 2 — €2.46\nПолучение: доставка\nСумма блюд без доставки: €2.46\nНужно указать: имя, телефон, адрес.\nУкажите адрес для проверки доставки: /address <улица> | <город> | <индекс>.",
       signal: controller.signal,
     });
   });

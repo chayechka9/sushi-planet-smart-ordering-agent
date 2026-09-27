@@ -200,7 +200,7 @@ export function renderTelegramResponse(
     }
     case "error":
       if (response.code === "delivery_unavailable") {
-        return "Доставка в эту зону пока недоступна.";
+        return "Не удалось рассчитать доставку по этому адресу. Адрес и стоимость не изменены. Проверьте заказ: /review. Можно выбрать самовывоз: /pickup.";
       }
       return "Не удалось обработать сообщение. Попробуйте сформулировать запрос иначе.";
     case "command_applied":
@@ -218,7 +218,7 @@ function renderAppliedResponse(
         ? "Имя сохранено."
         : "Телефон сохранён.";
       return limitTelegramText(
-        `${confirmation}\n${renderReview("Заказ", response.order)}`,
+        `${confirmation}\n${renderReview("Заказ", response.order)}${renderNextQuestion(response.order)}`,
       );
     }
     if (command.type === "set_delivery_address") {
@@ -248,12 +248,16 @@ function renderConversationResponse(response: ConversationAgentResponse): string
     }
     case "cart":
       return limitTelegramText(
-        `${renderOrder("Корзина", response.order)}\nУбрать: /remove <номер> [количество]`,
+        `${renderOrder("Корзина", response.order)}\nУбрать: /remove <номер> [количество]${renderNextQuestion(response.order)}`,
       );
     case "needs_input":
-      return renderReview("Заказ", response.order);
+      return limitTelegramText(
+        `${renderReview("Заказ", response.order)}${renderNextQuestion(response.order)}`,
+      );
     case "order_review":
-      return renderReview("Проверьте заказ", response.order);
+      return limitTelegramText(
+        `${renderReview("Проверьте заказ", response.order)}${renderNextQuestion(response.order)}`,
+      );
     case "checkout_ready":
       return limitTelegramText(
         `${renderOrder("Заказ", response.order)}\nСсылка на оплату: ${response.checkoutLink}`,
@@ -277,7 +281,11 @@ function renderOrder(title: string, order: ConversationOrderView): string {
       title + ":",
       ...lines,
       `Получение: ${fulfilmentLabel(order.fulfilment)}`,
-      `Итого: ${formatEuro(order.totals.totalCents)}`,
+      order.fulfilment === null
+        ? `Сумма блюд: ${formatEuro(order.totals.subtotalCents)}`
+        : order.fulfilment === "delivery" && order.missingFields.includes("address")
+          ? `Сумма блюд без доставки: ${formatEuro(order.totals.subtotalCents)}`
+          : `Итого: ${formatEuro(order.totals.totalCents)}`,
     ].join("\n"),
   );
 }
@@ -287,6 +295,20 @@ function renderReview(title: string, order: ConversationOrderView): string {
     ? "Обязательные данные заполнены."
     : `Нужно указать: ${order.missingFields.map(missingFieldLabel).join(", ")}.`;
   return limitTelegramText(`${renderOrder(title, order)}\n${completion}`);
+}
+
+function renderNextQuestion(order: ConversationOrderView): string {
+  if (order.items.length === 0) return "";
+  if (order.fulfilment === null) {
+    return "\nКак вы хотите получить заказ: доставка или самовывоз? Ответьте «доставка» или «самовывоз» (также можно /delivery или /pickup).";
+  }
+  if (
+    order.fulfilment === "delivery" &&
+    order.missingFields.includes("address")
+  ) {
+    return "\nУкажите адрес для проверки доставки: /address <улица> | <город> | <индекс>.";
+  }
+  return "";
 }
 
 function fulfilmentLabel(

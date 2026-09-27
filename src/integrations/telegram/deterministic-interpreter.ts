@@ -58,8 +58,10 @@ export class DeterministicTelegramInterpreter
       case "покажи меню":
         return { kind: "command", command: { type: "show_menu" } };
       case "/pickup":
+      case "самовывоз":
         return { kind: "command", command: { type: "choose_pickup" } };
       case "/delivery":
+      case "доставка":
         return { kind: "command", command: { type: "choose_delivery" } };
       case "/review":
         return { kind: "command", command: { type: "review_order" } };
